@@ -57,7 +57,7 @@ JWT in an `auth_token` httpOnly cookie (7-day expiry, signed with `JWT_SECRET`).
 First-run flow: `app/page.tsx` checks `isFirstRun()` and redirects to `/setup` if no users exist.
 
 ### BASE_PATH / sub-path deployment
-`BASE_PATH` is baked into the build as a placeholder string (`/strawdmin-base-path-placeholder`). At Docker container startup, `docker-entrypoint.sh` does a `sed` replacement of the placeholder with the runtime value of `$BASE_PATH`. This means changing the sub-path does **not** require a rebuild — only a container restart. All client-side fetch calls prefix with `basePath` from [lib/api-url.ts](lib/api-url.ts).
+`BASE_PATH` is passed as a Docker build arg and baked into both `basePath` (Next.js routing) and `NEXT_PUBLIC_BASE_PATH` (client-side fetch prefix) at build time. Changing it requires a rebuild (`docker compose up --build`). All client-side fetch calls prefix with `basePath` from [lib/api-url.ts](lib/api-url.ts).
 
 ### Route structure
 - `app/(auth)/login` — login page
