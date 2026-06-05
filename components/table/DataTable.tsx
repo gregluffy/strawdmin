@@ -877,7 +877,7 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
           style={{ maxHeight: `calc(100vh - ${headerHeight}px - 12rem)` }}
         >
           <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10 bg-[#1a1b2e]" style={{ boxShadow: '0 2px 0 0 rgba(99,102,241,0.3)' }}>
+            <thead className="sticky top-0 z-10 bg-[#1a1415]" style={{ boxShadow: '0 2px 0 0 rgba(191,107,113,0.3)' }}>
               <tr>
                 <th className="px-4 py-3.5 text-left align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap w-px">
                   {isAdmin ? "Actions" : "View"}
