@@ -1,0 +1,70 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { basePath } from "@/lib/api-url";
+
+interface User {
+  id: number;
+  username: string;
+  role: string;
+}
+
+export function Header() {
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    fetch(`${basePath}/api/auth/me`).then((r) => r.json()).then(setUser).catch(() => {});
+  }, []);
+
+  async function logout() {
+    await fetch(`${basePath}/api/auth/logout`, { method: "POST" });
+    router.push("/login");
+  }
+
+  return (
+    <header className="h-14 flex items-center justify-between px-6 border-b border-[var(--border)] bg-[var(--card)] shrink-0">
+      <Link href="/dashboard" className="text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)] transition-colors">
+        Dashboard
+      </Link>
+
+      <div className="relative">
+        <button
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-[var(--accent)] transition-colors text-sm"
+        >
+          <span className="w-7 h-7 rounded-full bg-[var(--primary)] flex items-center justify-center text-white text-xs font-bold">
+            {user?.username?.[0]?.toUpperCase() ?? "?"}
+          </span>
+          <span className="text-[var(--foreground)]">{user?.username ?? "..."}</span>
+          {user?.role === "admin" && (
+            <span className="px-1.5 py-0.5 bg-[var(--primary)]/20 text-[var(--primary)] text-[10px] rounded font-medium">
+              admin
+            </span>
+          )}
+        </button>
+
+        {menuOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+            <div className="absolute right-0 top-full mt-1 w-48 bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-xl z-20">
+              <div className="px-3 py-2 border-b border-[var(--border)]">
+                <p className="text-xs text-[var(--muted-foreground)]">Signed in as</p>
+                <p className="text-sm font-medium text-[var(--foreground)]">{user?.username}</p>
+              </div>
+              <button
+                onClick={logout}
+                className="w-full text-left px-3 py-2 text-sm text-[var(--destructive)] hover:bg-[var(--destructive)]/10 transition-colors rounded-b-lg"
+              >
+                Sign out
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </header>
+  );
+}

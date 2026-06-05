@@ -1,0 +1,53 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        BASE_PATH: /strawdmin-base-path-placeholder
+    container_name: strawdmin
+    ports:
+      - "3000:3000"
+    environment:
+      - DB_TYPE=${DB_TYPE}
+      - DB_CONNECTION_STRING=${DB_CONNECTION_STRING}
+      - JWT_SECRET=${JWT_SECRET}
+      - SECURE_COOKIES=${SECURE_COOKIES}
+      - BASE_PATH=${BASE_PATH:-}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+# To deploy behind a reverse proxy at a sub-path, set BASE_PATH in your .env:
+#   BASE_PATH=/services/strawdmin
+#
+# The entrypoint will patch the built files at container startup.
+# No rebuild required when using a pre-built image.
+#
+# Nginx location block:
+#   location /services/strawdmin {
+#       proxy_pass http://strawdmin:3000;
+#       proxy_set_header Host $host;
+#       proxy_set_header X-Real-IP $remote_addr;
+#       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#       proxy_set_header X-Forwarded-Proto $scheme;
+#   }
+
+# Example: To also run a PostgreSQL database:
+# services:
+#   db:
+#     image: postgres:16-alpine
+#     environment:
+#       POSTGRES_USER: admin
+#       POSTGRES_PASSWORD: secret
+#       POSTGRES_DB: mydb
+#     volumes:
+#       - pg_data:/var/lib/postgresql/data
+#   app:
+#     ...
+#     environment:
+#       - DB_TYPE=postgres
+#       - DB_CONNECTION_STRING=postgresql://admin:secret@db:5432/mydb
+#     depends_on:
+#       - db
+# volumes:
+#   pg_data:

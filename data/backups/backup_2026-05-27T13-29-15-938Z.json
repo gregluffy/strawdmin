@@ -1,0 +1,210 @@
+{
+  "created_at": "2026-05-27T13:29:15.938Z",
+  "db_type": "postgres",
+  "tables": {
+    "__EFMigrationsHistory": [
+      {
+        "MigrationId": "20241002102053_InitialCreate",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241011121010_add_mqtt_users_table",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241014104934_added_devicemodel_to_mqttuser_table",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241016060046_mqttusers_fields_changed_to_match_emqx",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241017085436_Logs_to_SystemLogs_and_created_PersonLogs_ProductionLogs",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241017085817_PersonLogs_changed_dataType_PersonId_EcosystemId",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241021104239_mqtt_user_isActive_prop_added",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241023102325_remove_computerName_from_productionLog",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241023124057_category_to_importance_personlog",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20241029130815_added_deviceId_to_PersonLogs",
+        "ProductVersion": "8.0.8"
+      },
+      {
+        "MigrationId": "20250414122449_create_schedule_table",
+        "ProductVersion": "8.0.8"
+      }
+    ],
+    "Devices": [],
+    "DeviceStatuses": [],
+    "EcoMemberDevices": [],
+    "EcoMembers": [
+      {
+        "Id": 1,
+        "PersonId": 2,
+        "EcosystemId": 1,
+        "EcoMemberTypeId": 1,
+        "CreatedAt": "2024-12-19T12:06:07.040Z",
+        "UpdatedAt": "2024-12-19T12:06:07.040Z"
+      },
+      {
+        "Id": 2,
+        "PersonId": 1,
+        "EcosystemId": 2,
+        "EcoMemberTypeId": 1,
+        "CreatedAt": "2024-12-19T12:06:07.087Z",
+        "UpdatedAt": "2024-12-19T12:06:07.087Z"
+      }
+    ],
+    "EcoMemberTypes": [
+      {
+        "Id": 1,
+        "Type": "Owner",
+        "CreatedAt": "2024-12-19T12:06:07.017Z",
+        "UpdatedAt": "2024-12-19T12:06:07.017Z"
+      },
+      {
+        "Id": 2,
+        "Type": "Admin",
+        "CreatedAt": "2024-12-19T12:06:07.023Z",
+        "UpdatedAt": "2024-12-19T12:06:07.023Z"
+      },
+      {
+        "Id": 3,
+        "Type": "Member",
+        "CreatedAt": "2024-12-19T12:06:07.023Z",
+        "UpdatedAt": "2024-12-19T12:06:07.023Z"
+      }
+    ],
+    "Ecosystems": [
+      {
+        "Id": 1,
+        "PersonId": 2,
+        "Name": "User Ecosystem",
+        "CreatedAt": "2024-12-19T12:06:07.040Z",
+        "UpdatedAt": "2024-12-19T12:06:07.040Z"
+      },
+      {
+        "Id": 2,
+        "PersonId": 1,
+        "Name": "Manufacturer Ecosystem",
+        "CreatedAt": "2024-12-19T12:06:07.087Z",
+        "UpdatedAt": "2024-12-19T12:06:07.087Z"
+      }
+    ],
+    "MobileDevices": [
+      {
+        "Id": 1,
+        "PersonId": 2,
+        "DeviceDescription": "",
+        "FirebaseToken": "",
+        "EnabledNotification": true,
+        "SelectedLanguage": "",
+        "LastActivity": null,
+        "CreatedAt": "2024-12-19T12:06:07.040Z",
+        "UpdatedAt": "2024-12-19T12:06:07.040Z"
+      },
+      {
+        "Id": 2,
+        "PersonId": 1,
+        "DeviceDescription": "",
+        "FirebaseToken": "",
+        "EnabledNotification": true,
+        "SelectedLanguage": "",
+        "LastActivity": null,
+        "CreatedAt": "2024-12-19T12:06:07.087Z",
+        "UpdatedAt": "2024-12-19T12:06:07.087Z"
+      }
+    ],
+    "MqttUsers": [],
+    "PersonLogs": [],
+    "Persons": [
+      {
+        "Id": 1,
+        "PersonTypeId": 1,
+        "Email": "manufacturer@example.com",
+        "FirstName": "Manufacturer",
+        "LastName": "Manufacturer",
+        "Password": "NGZjZDU3ZDM2MzNiMWVkM2ZkZDM4NWQxMzFlMmQ1NWUxNTc4ZDg0MTllNWQ1MjEwNjRhYjRhY2M0NjhmNDM1ZGQ5Zjk4ODU4ZjVmYzZkMjEwMDk5NjhmMTRiYzQ3MjczMjBiNmQ2MzU1YmVjOGY3Y2EyOTFlMTViM2Y2ODdiYWI=",
+        "IsActive": true,
+        "EmailVerified": true,
+        "Salt": "LYy2Linp",
+        "AppleId": "",
+        "GoogleId": "",
+        "LastLogin": null,
+        "CreatedAt": "2024-12-19T12:06:07.087Z",
+        "UpdatedAt": "2024-12-19T12:06:07.087Z"
+      },
+      {
+        "Id": 2,
+        "PersonTypeId": 2,
+        "Email": "user@example.com",
+        "FirstName": "User",
+        "LastName": "User",
+        "Password": "NGQzNDM4YjhkYmJjNjUxNmJjZmZlNjAwMmM3NmU5Y2QzZmZjOThjODA3MDYwYzE3ODQ0ZGMyODc5OWVjNTdjZmU1NjhiMWVmNDdhY2MzNGE0NzU0ZTViYjYwOTFhYzExODU5NjAxMmVkYjAyMWJhZTEwYjJiMjQzMGQ4MTNhMTM=",
+        "IsActive": true,
+        "EmailVerified": true,
+        "Salt": "odbC4f6q",
+        "AppleId": "",
+        "GoogleId": "",
+        "LastLogin": null,
+        "CreatedAt": "2024-12-19T12:06:07.040Z",
+        "UpdatedAt": "2024-12-19T12:06:07.040Z"
+      }
+    ],
+    "PersonTypes": [
+      {
+        "Id": 1,
+        "Type": "Manufacturer",
+        "CreatedAt": "2024-12-19T12:06:06.926Z",
+        "UpdatedAt": "2024-12-19T12:06:06.926Z"
+      },
+      {
+        "Id": 2,
+        "Type": "User",
+        "CreatedAt": "2024-12-19T12:06:06.959Z",
+        "UpdatedAt": "2024-12-19T12:06:06.959Z"
+      },
+      {
+        "Id": 3,
+        "Type": "Production",
+        "CreatedAt": "2024-12-19T12:06:06.959Z",
+        "UpdatedAt": "2024-12-19T12:06:06.959Z"
+      }
+    ],
+    "Places": [
+      {
+        "Id": 1,
+        "EcosystemId": 1,
+        "Name": "Default",
+        "Position": 0,
+        "CreatedAt": "2024-12-19T12:06:07.040Z",
+        "UpdatedAt": "2024-12-19T12:06:07.040Z"
+      },
+      {
+        "Id": 2,
+        "EcosystemId": 2,
+        "Name": "Default",
+        "Position": 0,
+        "CreatedAt": "2024-12-19T12:06:07.087Z",
+        "UpdatedAt": "2024-12-19T12:06:07.087Z"
+      }
+    ],
+    "ProductionLogs": [],
+    "Schedules": [],
+    "SystemLogs": []
+  }
+}
