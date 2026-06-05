@@ -7,7 +7,7 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ARG BASE_PATH=/strawdmin-base-path-placeholder
+ARG BASE_PATH=
 ENV BASE_PATH=$BASE_PATH
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build

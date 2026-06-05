@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        BASE_PATH: /strawdmin-base-path-placeholder
+        BASE_PATH: ${BASE_PATH:-}
     container_name: strawdmin
     ports:
       - "3000:3000"
@@ -23,10 +23,10 @@ services:
     restart: unless-stopped
 
 # ── Sub-path deployment ────────────────────────────────────────────────────────
-# To serve behind a reverse proxy at a sub-path, set BASE_PATH in your .env:
-#   BASE_PATH=/services/strawdmin
-#
-# The entrypoint patches the built files at container startup — no rebuild needed.
+# To serve behind a reverse proxy at a sub-path, set BASE_PATH in your .env
+# and rebuild the image:
+#   BASE_PATH=/services/strawdmin   (in .env)
+#   docker compose up --build
 #
 # Nginx location block:
 #   location /services/strawdmin {
