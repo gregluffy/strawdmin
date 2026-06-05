@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BackupMeta } from "@/lib/types";
 import { formatSize } from "@/lib/format";
 import { basePath } from "@/lib/api-url";
@@ -11,6 +11,11 @@ export default function BackupsPage() {
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const [settingsExporting, setSettingsExporting] = useState(false);
+  const [settingsImporting, setSettingsImporting] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function loadBackups() {
     setLoading(true);
@@ -62,6 +67,62 @@ export default function BackupsPage() {
     if (!confirm(`Delete backup "${name}"?`)) return;
     const res = await fetch(`${basePath}/api/backups/${name}`, { method: "DELETE" });
     if (res.ok) loadBackups();
+  }
+
+  async function exportSettings() {
+    setSettingsExporting(true);
+    setSettingsMessage(null);
+    try {
+      const res = await fetch(`${basePath}/api/settings-backup`);
+      if (!res.ok) {
+        setSettingsMessage({ type: "error", text: "Export failed" });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `strawdmin-settings-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setSettingsMessage({ type: "error", text: "Export failed" });
+    } finally {
+      setSettingsExporting(false);
+    }
+  }
+
+  async function importSettings(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!confirm(`Restore settings from "${file.name}"? This will overwrite all current app settings (FK mappings, encryption, view settings, policies) for this database.`)) return;
+    setSettingsImporting(true);
+    setSettingsMessage(null);
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const res = await fetch(`${basePath}/api/settings-backup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(json),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSettingsMessage({ type: "error", text: data.error ?? "Import failed" });
+        return;
+      }
+      const skipped = data.skipped_users as string[] | undefined;
+      let text2 = "Settings imported successfully.";
+      if (skipped && skipped.length > 0) {
+        text2 += ` Note: ${skipped.length} user(s) not found and skipped: ${skipped.join(", ")}`;
+      }
+      setSettingsMessage({ type: "success", text: text2 });
+    } catch (err) {
+      setSettingsMessage({ type: "error", text: String(err) });
+    } finally {
+      setSettingsImporting(false);
+    }
   }
 
   return (
@@ -154,6 +215,79 @@ export default function BackupsPage() {
           Backups are stored as JSON files and include all table data. Restoring will delete all current
           data and replace it with the backup. Use with caution.
         </p>
+      </div>
+
+      {/* Settings backup section */}
+      <div className="mt-8">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-[var(--foreground)]">App Settings Backup</h2>
+          <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
+            Export or import all app settings for the current database: FK display mappings, encryption settings, column view preferences, and user access policies.
+          </p>
+        </div>
+
+        {settingsMessage && (
+          <div
+            className={`mb-4 p-3 rounded-lg text-sm border ${
+              settingsMessage.type === "success"
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                : "bg-[var(--destructive)]/10 border-[var(--destructive)]/20 text-[var(--destructive)]"
+            }`}
+          >
+            {settingsMessage.text}
+          </div>
+        )}
+
+        <div className="border border-[var(--border)] rounded-xl p-5 bg-[var(--card)] flex flex-col gap-5">
+          {/* Export */}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-[var(--foreground)]">Export Settings</p>
+              <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                Download a JSON file with all settings for the current connected database.
+              </p>
+            </div>
+            <button
+              onClick={exportSettings}
+              disabled={settingsExporting}
+              className="shrink-0 px-4 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] rounded-lg text-sm font-medium transition-colors border border-[var(--border)] disabled:opacity-50"
+            >
+              {settingsExporting ? "Exporting…" : "↓ Export"}
+            </button>
+          </div>
+
+          <div className="border-t border-[var(--border)]" />
+
+          {/* Import */}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-[var(--foreground)]">Import Settings</p>
+              <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                Restore settings from a previously exported JSON file. Policies are matched by username.
+              </p>
+            </div>
+            <div className="shrink-0 flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={importSettings}
+                className="hidden"
+                id="settings-import-input"
+              />
+              <label
+                htmlFor="settings-import-input"
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border cursor-pointer select-none ${
+                  settingsImporting
+                    ? "opacity-50 pointer-events-none bg-[var(--secondary)] text-[var(--foreground)] border-[var(--border)]"
+                    : "bg-[var(--primary)]/10 hover:bg-[var(--primary)]/20 text-[var(--primary)] border-[var(--primary)]/30"
+                }`}
+              >
+                {settingsImporting ? "Importing…" : "↑ Import"}
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
