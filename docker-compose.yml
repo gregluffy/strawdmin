@@ -14,14 +14,19 @@ services:
       - SECURE_COOKIES=${SECURE_COOKIES}
       - BASE_PATH=${BASE_PATH:-}
     volumes:
+      # Persistent data directory — REQUIRED to survive container restarts and upgrades.
+      # Contains:
+      #   app.db          — internal SQLite database (users, FK display settings,
+      #                     field encryption settings, column view preferences)
+      #   backups/        — JSON backup files created from the Backups page
       - ./data:/app/data
     restart: unless-stopped
 
-# To deploy behind a reverse proxy at a sub-path, set BASE_PATH in your .env:
+# ── Sub-path deployment ────────────────────────────────────────────────────────
+# To serve behind a reverse proxy at a sub-path, set BASE_PATH in your .env:
 #   BASE_PATH=/services/strawdmin
 #
-# The entrypoint will patch the built files at container startup.
-# No rebuild required when using a pre-built image.
+# The entrypoint patches the built files at container startup — no rebuild needed.
 #
 # Nginx location block:
 #   location /services/strawdmin {
@@ -32,7 +37,7 @@ services:
 #       proxy_set_header X-Forwarded-Proto $scheme;
 #   }
 
-# Example: To also run a PostgreSQL database:
+# ── Example: bundled PostgreSQL ────────────────────────────────────────────────
 # services:
 #   db:
 #     image: postgres:16-alpine
