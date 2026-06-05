@@ -1,0 +1,248 @@
+import fs from "fs";
+import path from "path";
+import type { User, FkDisplaySetting, EncryptionSetting } from "./types";
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { createClient } = require("@libsql/client");
+
+type LibsqlClient = {
+  execute(opts: { sql: string; args?: unknown[] } | string): Promise<{ rows: Record<string, unknown>[] }>;
+};
+
+let client: LibsqlClient | null = null;
+let ready: Promise<void> | null = null;
+
+function getDataDir(): string {
+  return process.env.DATA_DIR ?? path.join(process.cwd(), "data");
+}
+
+function getDb(): { client: LibsqlClient; ready: Promise<void> } {
+  if (!client) {
+    const dataDir = getDataDir();
+    fs.mkdirSync(dataDir, { recursive: true });
+    // Normalize to forward slashes — @libsql/client requires a valid file: URL
+    // and Windows path.join() returns backslashes which break the URL parser.
+    const dbPath = path.join(dataDir, "app.db").replace(/\\/g, "/");
+    client = createClient({ url: `file:${dbPath}` });
+    ready = ensureTables(client as LibsqlClient);
+  }
+  return { client: client!, ready: ready! };
+}
+
+async function ensureTables(db: LibsqlClient): Promise<void> {
+  await db.execute(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL
+  )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS fk_display_settings (
+    db_fingerprint TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    column_name TEXT NOT NULL,
+    display_field TEXT NOT NULL,
+    PRIMARY KEY (db_fingerprint, table_name, column_name)
+  )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS field_encryption_settings (
+    db_fingerprint TEXT NOT NULL,
+    table_name     TEXT NOT NULL,
+    column_name    TEXT NOT NULL,
+    algorithm      TEXT NOT NULL,
+    salt_column    TEXT,
+    PRIMARY KEY (db_fingerprint, table_name, column_name)
+  )`);
+}
+
+async function db(): Promise<LibsqlClient> {
+  const { client, ready } = getDb();
+  await ready;
+  return client;
+}
+
+function getDbFingerprint(): string {
+  const type = process.env.DB_TYPE ?? "sqlite";
+  const conn = process.env.DB_CONNECTION_STRING ?? "";
+  return `${type}:${conn}`;
+}
+
+async function pruneStaleSettings(fingerprint: string): Promise<void> {
+  const c = await db();
+  await c.execute({ sql: "DELETE FROM fk_display_settings WHERE db_fingerprint != ?", args: [fingerprint] });
+  await c.execute({ sql: "DELETE FROM field_encryption_settings WHERE db_fingerprint != ?", args: [fingerprint] });
+}
+
+// ── User functions ──────────────────────────────────────────────────────────
+
+export async function isFirstRun(): Promise<boolean> {
+  try {
+    const c = await db();
+    const rows = await c.execute({ sql: "SELECT 1 FROM users LIMIT 1", args: [] });
+    return rows.rows.length === 0;
+  } catch {
+    return true;
+  }
+}
+
+export async function getUsers(): Promise<Omit<User, "password_hash">[]> {
+  const c = await db();
+  const rows = await c.execute("SELECT id, username, role, created_at FROM users ORDER BY id");
+  return rows.rows.map((r) => ({
+    id: Number(r.id),
+    username: String(r.username),
+    role: r.role as "admin" | "user",
+    created_at: String(r.created_at),
+  }));
+}
+
+export async function getUserByUsername(username: string): Promise<User | null> {
+  const c = await db();
+  const rows = await c.execute({ sql: "SELECT * FROM users WHERE username = ?", args: [username] });
+  if (rows.rows.length === 0) return null;
+  const r = rows.rows[0];
+  return {
+    id: Number(r.id),
+    username: String(r.username),
+    password_hash: String(r.password_hash),
+    role: r.role as "admin" | "user",
+    created_at: String(r.created_at),
+  };
+}
+
+export async function getUserById(id: number): Promise<User | null> {
+  const c = await db();
+  const rows = await c.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [id] });
+  if (rows.rows.length === 0) return null;
+  const r = rows.rows[0];
+  return {
+    id: Number(r.id),
+    username: String(r.username),
+    password_hash: String(r.password_hash),
+    role: r.role as "admin" | "user",
+    created_at: String(r.created_at),
+  };
+}
+
+export async function createUser(
+  username: string,
+  password_hash: string,
+  role: "admin" | "user"
+): Promise<Omit<User, "password_hash">> {
+  const c = await db();
+  const created_at = new Date().toISOString();
+  await c.execute({
+    sql: "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+    args: [username, password_hash, role, created_at],
+  });
+  const rows = await c.execute({ sql: "SELECT * FROM users WHERE username = ?", args: [username] });
+  const r = rows.rows[0];
+  return {
+    id: Number(r.id),
+    username: String(r.username),
+    role: r.role as "admin" | "user",
+    created_at: String(r.created_at),
+  };
+}
+
+export async function updateUser(
+  id: number,
+  updates: Partial<Pick<User, "password_hash" | "role">>
+): Promise<boolean> {
+  const c = await db();
+  const parts: string[] = [];
+  const args: unknown[] = [];
+  if (updates.password_hash !== undefined) { parts.push("password_hash = ?"); args.push(updates.password_hash); }
+  if (updates.role !== undefined) { parts.push("role = ?"); args.push(updates.role); }
+  if (parts.length === 0) return false;
+  args.push(id);
+  await c.execute({ sql: `UPDATE users SET ${parts.join(", ")} WHERE id = ?`, args });
+  return true;
+}
+
+export async function deleteUser(id: number): Promise<boolean> {
+  const c = await db();
+  const before = await c.execute({ sql: "SELECT id FROM users WHERE id = ?", args: [id] });
+  if (before.rows.length === 0) return false;
+  await c.execute({ sql: "DELETE FROM users WHERE id = ?", args: [id] });
+  return true;
+}
+
+// ── FK display settings ─────────────────────────────────────────────────────
+
+export async function getFkSettings(tableName: string): Promise<FkDisplaySetting[]> {
+  const fingerprint = getDbFingerprint();
+  await pruneStaleSettings(fingerprint);
+  const c = await db();
+  const rows = await c.execute({
+    sql: "SELECT column_name, display_field FROM fk_display_settings WHERE db_fingerprint = ? AND table_name = ?",
+    args: [fingerprint, tableName],
+  });
+  return rows.rows.map((r) => ({
+    column_name: String(r.column_name),
+    display_field: String(r.display_field),
+  }));
+}
+
+export async function upsertFkSetting(
+  tableName: string,
+  columnName: string,
+  displayField: string
+): Promise<void> {
+  const fingerprint = getDbFingerprint();
+  await pruneStaleSettings(fingerprint);
+  const c = await db();
+  await c.execute({
+    sql: `INSERT INTO fk_display_settings (db_fingerprint, table_name, column_name, display_field)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(db_fingerprint, table_name, column_name) DO UPDATE SET display_field = excluded.display_field`,
+    args: [fingerprint, tableName, columnName, displayField],
+  });
+}
+
+// ── Encryption settings ─────────────────────────────────────────────────────
+
+export async function getEncryptionSettings(tableName: string): Promise<EncryptionSetting[]> {
+  const fingerprint = getDbFingerprint();
+  await pruneStaleSettings(fingerprint);
+  const c = await db();
+  const rows = await c.execute({
+    sql: "SELECT column_name, algorithm, salt_column FROM field_encryption_settings WHERE db_fingerprint = ? AND table_name = ?",
+    args: [fingerprint, tableName],
+  });
+  return rows.rows.map((r) => ({
+    column_name: String(r.column_name),
+    algorithm: String(r.algorithm),
+    salt_column: r.salt_column != null ? String(r.salt_column) : null,
+  }));
+}
+
+export async function upsertEncryptionSetting(
+  tableName: string,
+  columnName: string,
+  algorithm: string,
+  saltColumn?: string
+): Promise<void> {
+  const fingerprint = getDbFingerprint();
+  await pruneStaleSettings(fingerprint);
+  const c = await db();
+  await c.execute({
+    sql: `INSERT INTO field_encryption_settings (db_fingerprint, table_name, column_name, algorithm, salt_column)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(db_fingerprint, table_name, column_name)
+          DO UPDATE SET algorithm = excluded.algorithm, salt_column = excluded.salt_column`,
+    args: [fingerprint, tableName, columnName, algorithm, saltColumn ?? null],
+  });
+}
+
+export async function deleteEncryptionSetting(
+  tableName: string,
+  columnName: string
+): Promise<void> {
+  const fingerprint = getDbFingerprint();
+  await pruneStaleSettings(fingerprint);
+  const c = await db();
+  await c.execute({
+    sql: "DELETE FROM field_encryption_settings WHERE db_fingerprint = ? AND table_name = ? AND column_name = ?",
+    args: [fingerprint, tableName, columnName],
+  });
+}
