@@ -73,8 +73,6 @@ To serve Strawdmin at a path like `/services/strawdmin`, set `BASE_PATH` in `.en
 BASE_PATH=/services/strawdmin
 ```
 
-The Docker entrypoint patches the built files at container startup — no rebuild required.
-
 Example Nginx location block:
 
 ```nginx
@@ -86,6 +84,14 @@ location /services/strawdmin {
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+---
+
+## Security
+
+- **Brute-force protection** — the login endpoint tracks failures per IP and per username in memory. After 10 failed attempts within 15 minutes, that IP or username is locked out for 15 minutes. The counter resets on a successful login. Because the state is in-memory, it resets on process restart; this is acceptable for a single-process deployment but means it is not cluster-safe.
+- **JWT auth** — credentials are exchanged for a signed `auth_token` httpOnly cookie (7-day expiry). There is no session server; `JWT_SECRET` is the only secret that matters — keep it random and at least 32 characters.
+- **Intended deployment** — Strawdmin is designed to run on a private network or behind a reverse proxy with its own access controls. It is not hardened for direct exposure to the public internet.
 
 ---
 
