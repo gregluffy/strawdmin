@@ -3,7 +3,7 @@ import { getDriver } from "@/lib/drivers";
 import { getTable } from "@/lib/introspect";
 import { serializeRow, deserializeBinary } from "@/lib/sql";
 import { getRequestUser } from "@/lib/request-auth";
-import { getUserTablePolicy, getUserColumnPolicies } from "@/lib/internal-db";
+import { getUserTablePolicy, getUserColumnPolicies, logAudit } from "@/lib/internal-db";
 
 export async function GET(
   req: NextRequest,
@@ -138,6 +138,8 @@ export async function POST(
     const sql = `INSERT INTO ${driver.quote(table)} (${cols}) VALUES (${phs})${returning}`;
 
     const result = await driver.query(sql, values);
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? null;
+    logAudit({ userId: user.sub, username: user.username, action: "INSERT", tableName: table, changes: { after: body }, ip }).catch(() => {});
     return NextResponse.json({ ok: true, row: result[0] ?? null }, { status: 201 });
   } catch (err) {
     console.error(err);

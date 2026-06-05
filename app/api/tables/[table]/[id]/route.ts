@@ -3,7 +3,7 @@ import { getDriver } from "@/lib/drivers";
 import { getTable } from "@/lib/introspect";
 import { serializeRow, deserializeBinary } from "@/lib/sql";
 import { getRequestUser } from "@/lib/request-auth";
-import { getUserTablePolicy, getUserColumnPolicies } from "@/lib/internal-db";
+import { getUserTablePolicy, getUserColumnPolicies, logAudit } from "@/lib/internal-db";
 
 type RouteParams = { params: Promise<{ table: string; id: string }> };
 
@@ -72,10 +72,18 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     });
     values.push(id);
 
+    const beforeRows = await driver.query(
+      `SELECT * FROM ${driver.quote(table)} WHERE ${driver.quote(schema.primaryKey)} = ${driver.placeholder(0)}`,
+      [id]
+    );
+    const beforeRow = beforeRows[0] ? serializeRow(beforeRows[0] as Record<string, unknown>) : undefined;
+
     const setParts = updateCols.map((c, i) => `${driver.quote(c.name)} = ${driver.placeholder(i)}`);
     const sql = `UPDATE ${driver.quote(table)} SET ${setParts.join(", ")} WHERE ${driver.quote(schema.primaryKey)} = ${driver.placeholder(updateCols.length)}`;
 
     await driver.query(sql, values);
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? null;
+    logAudit({ userId: user.sub, username: user.username, action: "UPDATE", tableName: table, recordId: id, changes: { before: beforeRow, after: body }, ip }).catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -97,10 +105,18 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     }
 
     const driver = getDriver();
+    const beforeRows = await driver.query(
+      `SELECT * FROM ${driver.quote(table)} WHERE ${driver.quote(schema.primaryKey)} = ${driver.placeholder(0)}`,
+      [id]
+    );
+    const beforeRow = beforeRows[0] ? serializeRow(beforeRows[0] as Record<string, unknown>) : undefined;
+
     await driver.query(
       `DELETE FROM ${driver.quote(table)} WHERE ${driver.quote(schema.primaryKey)} = ${driver.placeholder(0)}`,
       [id]
     );
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? null;
+    logAudit({ userId: user.sub, username: user.username, action: "DELETE", tableName: table, recordId: id, changes: { before: beforeRow }, ip }).catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

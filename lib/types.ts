@@ -80,3 +80,16 @@ export interface ColumnPolicy {
   hidden: boolean;
   read_only: boolean;
 }
+
+export interface AuditLog {
+  id: number;
+  db_fingerprint: string;
+  user_id: number | null;
+  username: string;
+  action: "INSERT" | "UPDATE" | "DELETE" | "LOGIN" | "LOGIN_FAILED";
+  table_name: string | null;
+  record_id: string | null;
+  changes: { before?: Record<string, unknown>; after?: Record<string, unknown> } | null;
+  ip: string | null;
+  created_at: string;
+}
