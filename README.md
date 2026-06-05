@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Strawdmin
 
-## Getting Started
+A self-hosted database admin UI. Browse tables, edit records, manage users, and create backups — all from your browser.
 
-First, run the development server:
+Supports **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server**, and **SQLite**.
+
+---
+
+## Features
+
+- **Table browser** — paginated table view with search and column sorting
+- **CRUD** — create, read, update, and delete rows; JSON columns get a Monaco editor
+- **FK display** — configure which field to show for foreign key columns instead of raw IDs
+- **Field encryption** — mark columns as SHA-256 or SHA-512 hashed; values are hashed before being written to the database
+- **Backups** — full JSON export of all tables; restore individual backups
+- **User management** — multiple users with `admin` / `user` roles
+- **Sub-path deployment** — run behind a reverse proxy at any base path without rebuilding
+- **Dark / light theme** — via `next-themes`
+
+---
+
+## Quick start with Docker
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
+# Edit .env — set DB_TYPE, DB_CONNECTION_STRING, and JWT_SECRET
+docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) and create your admin account on first run.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment variables
 
-## Learn More
+| Variable | Required | Description |
+|---|---|---|
+| `DB_TYPE` | yes | `postgres` \| `mysql` \| `mariadb` \| `mssql` \| `sqlite` |
+| `DB_CONNECTION_STRING` | yes | Connection string for the database to administer |
+| `JWT_SECRET` | yes | Random 32+ character string for JWT signing |
+| `SECURE_COOKIES` | no | Set to `false` when serving over plain HTTP (default: secure in production) |
+| `BASE_PATH` | no | Sub-path prefix, e.g. `/strawdmin` |
+| `DATA_DIR` | no | Override for internal data directory (default: `./data`) |
 
-To learn more about Next.js, take a look at the following resources:
+### Connection string formats
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+# PostgreSQL
+postgresql://user:password@localhost:5432/dbname
+postgresql://user:password@host:5432/dbname?sslmode=require
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# MySQL / MariaDB
+mysql://user:password@localhost:3306/dbname
+mysql://user:password@host:3306/dbname?ssl=true
 
-## Deploy on Vercel
+# SQL Server (local)
+Server=localhost,1433;Database=dbname;User Id=user;Password=pass
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# SQL Server (Azure / explicit TLS)
+Server=host,1433;Database=dbname;User Id=user;Password=pass;TrustServerCertificate=true;Encrypt=true
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# SQLite
+/path/to/database.db
+```
+
+---
+
+## Sub-path deployment
+
+To serve Strawdmin at a path like `/services/strawdmin`, set `BASE_PATH` in `.env`:
+
+```env
+BASE_PATH=/services/strawdmin
+```
+
+The Docker entrypoint patches the built files at container startup — no rebuild required.
+
+Example Nginx location block:
+
+```nginx
+location /services/strawdmin {
+    proxy_pass http://strawdmin:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+---
+
+## Local development
+
+```bash
+cp .env.example .env
+npm install
+npm run dev
+```
+
+---
+
+## Data persistence
+
+The internal app state (users, settings) is stored in a SQLite database at `data/app.db`. Backups are stored as JSON files in `data/backups/`. Mount the `data/` directory as a Docker volume to persist state across container restarts.
+
+```yaml
+volumes:
+  - ./data:/app/data
+```
