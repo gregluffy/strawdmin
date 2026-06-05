@@ -52,6 +52,14 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
     salt_column    TEXT,
     PRIMARY KEY (db_fingerprint, table_name, column_name)
   )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS table_view_settings (
+    db_fingerprint TEXT NOT NULL,
+    table_name     TEXT NOT NULL,
+    visible_cols   TEXT NOT NULL,
+    sort_col       TEXT NOT NULL,
+    sort_dir       TEXT NOT NULL DEFAULT 'asc',
+    PRIMARY KEY (db_fingerprint, table_name)
+  )`);
 }
 
 async function db(): Promise<LibsqlClient> {
@@ -70,6 +78,7 @@ async function pruneStaleSettings(fingerprint: string): Promise<void> {
   const c = await db();
   await c.execute({ sql: "DELETE FROM fk_display_settings WHERE db_fingerprint != ?", args: [fingerprint] });
   await c.execute({ sql: "DELETE FROM field_encryption_settings WHERE db_fingerprint != ?", args: [fingerprint] });
+  await c.execute({ sql: "DELETE FROM table_view_settings WHERE db_fingerprint != ?", args: [fingerprint] });
 }
 
 // ── User functions ──────────────────────────────────────────────────────────
@@ -244,5 +253,52 @@ export async function deleteEncryptionSetting(
   await c.execute({
     sql: "DELETE FROM field_encryption_settings WHERE db_fingerprint = ? AND table_name = ? AND column_name = ?",
     args: [fingerprint, tableName, columnName],
+  });
+}
+
+// ── Table view settings ─────────────────────────────────────────────────────
+
+export interface ViewSettings {
+  visible_cols: string[];
+  sort_col: string;
+  sort_dir: "asc" | "desc";
+}
+
+export async function getViewSettings(tableName: string): Promise<ViewSettings | null> {
+  const fingerprint = getDbFingerprint();
+  await pruneStaleSettings(fingerprint);
+  const c = await db();
+  const rows = await c.execute({
+    sql: "SELECT visible_cols, sort_col, sort_dir FROM table_view_settings WHERE db_fingerprint = ? AND table_name = ?",
+    args: [fingerprint, tableName],
+  });
+  if (rows.rows.length === 0) return null;
+  const r = rows.rows[0];
+  try {
+    return {
+      visible_cols: JSON.parse(String(r.visible_cols)) as string[],
+      sort_col: String(r.sort_col),
+      sort_dir: r.sort_dir === "desc" ? "desc" : "asc",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function upsertViewSettings(
+  tableName: string,
+  visibleCols: string[],
+  sortCol: string,
+  sortDir: "asc" | "desc"
+): Promise<void> {
+  const fingerprint = getDbFingerprint();
+  await pruneStaleSettings(fingerprint);
+  const c = await db();
+  await c.execute({
+    sql: `INSERT INTO table_view_settings (db_fingerprint, table_name, visible_cols, sort_col, sort_dir)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(db_fingerprint, table_name)
+          DO UPDATE SET visible_cols = excluded.visible_cols, sort_col = excluded.sort_col, sort_dir = excluded.sort_dir`,
+    args: [fingerprint, tableName, JSON.stringify(visibleCols), sortCol, sortDir],
   });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import type { PaginatedResult, SchemaTable, Column } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
@@ -26,6 +26,12 @@ interface EncConfigState {
   saving: boolean;
 }
 
+interface ColConfigDraft {
+  cols: Set<string>;
+  sort: string;
+  dir: "asc" | "desc";
+}
+
 interface Props {
   tableName: string;
   schema: SchemaTable;
@@ -48,21 +54,40 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
   const [fkModal, setFkModal] = useState<FkModal | null>(null);
   const [pinnedRows, setPinnedRows] = useState<Set<string>>(new Set());
 
-  // FK display settings: colName → display field name
   const [fkSettings, setFkSettings] = useState<Record<string, string>>({});
-  // FK display values: colName → { rawId → display string }
   const [fkDisplayValues, setFkDisplayValues] = useState<Record<string, Record<string, string>>>({});
-  // FK configure modal state
   const [fkConfig, setFkConfig] = useState<FkConfigState | null>(null);
 
-  // Encryption settings: colName → { algorithm, saltColumn }
   const [encSettings, setEncSettings] = useState<Record<string, { algorithm: string; saltColumn: string | null }>>({});
-  // Encryption config modal
   const [encConfig, setEncConfig] = useState<EncConfigState | null>(null);
+
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [visibleCols, setVisibleCols] = useState<Set<string>>(
+    () => new Set(schema.columns.map((c) => c.name))
+  );
+  const [colConfigDraft, setColConfigDraft] = useState<ColConfigDraft | null>(null);
 
   const pageSize = 50;
 
-  // Load FK display settings for this table
+  // Load column visibility + sort prefs from the internal DB
+  useEffect(() => {
+    fetch(`${basePath}/api/view-settings?table=${encodeURIComponent(tableName)}`)
+      .then((r) => r.json())
+      .then((data: { visible_cols?: string[]; sort_col?: string; sort_dir?: string } | null) => {
+        if (!data) return;
+        if (Array.isArray(data.visible_cols) && data.visible_cols.length > 0) {
+          setVisibleCols(new Set(data.visible_cols));
+        }
+        if (typeof data.sort_col === "string" && schema.columns.some((c) => c.name === data.sort_col)) {
+          setSort(data.sort_col);
+        }
+        if (data.sort_dir === "asc" || data.sort_dir === "desc") {
+          setDir(data.sort_dir);
+        }
+      })
+      .catch(() => {});
+  }, [tableName]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     fetch(`${basePath}/api/fk-settings?table=${encodeURIComponent(tableName)}`)
       .then((r) => r.json())
@@ -75,7 +100,6 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
       .catch(() => {});
   }, [tableName]);
 
-  // Load encryption settings for this table
   useEffect(() => {
     fetch(`${basePath}/api/encryption-settings?table=${encodeURIComponent(tableName)}`)
       .then((r) => r.json())
@@ -88,12 +112,10 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
       .catch(() => {});
   }, [tableName]);
 
-  // Lazy-load display values after table data + settings are ready
   useEffect(() => {
     if (!result) return;
     const fkCols = schema.columns.filter((c) => c.fk && fkSettings[c.name]);
     if (fkCols.length === 0) return;
-
     for (const col of fkCols) {
       const displayField = fkSettings[col.name];
       const uniqueIds = [
@@ -219,7 +241,6 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
         body: JSON.stringify({ table: tableName, column: fkConfig.col.name, displayField: fkConfig.selectedField }),
       });
       setFkSettings((prev) => ({ ...prev, [fkConfig.col.name]: fkConfig.selectedField }));
-      // Re-fetch display values for this column immediately
       if (result) {
         const uniqueIds = [...new Set(result.rows.map((r) => r[fkConfig.col.name]).filter((v) => v !== null && v !== undefined).map(String))];
         if (uniqueIds.length > 0) {
@@ -243,6 +264,37 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  }
+
+  function toggleExpand(id: string) {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function openColConfig() {
+    setColConfigDraft({ cols: new Set(visibleCols), sort, dir });
+  }
+
+  function saveColConfig() {
+    if (!colConfigDraft || colConfigDraft.cols.size === 0) return;
+    setVisibleCols(colConfigDraft.cols);
+    setSort(colConfigDraft.sort);
+    setDir(colConfigDraft.dir);
+    setPage(1);
+    fetch(`${basePath}/api/view-settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        table: tableName,
+        visible_cols: [...colConfigDraft.cols],
+        sort_col: colConfigDraft.sort,
+        sort_dir: colConfigDraft.dir,
+      }),
+    }).catch(() => {});
+    setColConfigDraft(null);
   }
 
   function openEncConfig(colName?: string) {
@@ -302,6 +354,8 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
   }
 
   const totalPages = result ? Math.ceil(result.total / pageSize) : 0;
+  const visibleColsList = schema.columns.filter((c) => visibleCols.has(c.name));
+  const hiddenCount = schema.columns.length - visibleColsList.length;
 
   function formatCell(value: unknown, isJson: boolean): string {
     if (value === null || value === undefined) return "";
@@ -312,8 +366,43 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
     return String(value);
   }
 
+  function renderExpandedValue(col: Column, val: unknown) {
+    if (val === null || val === undefined) {
+      return <span className="italic text-[var(--muted-foreground)] text-xs">null</span>;
+    }
+    if (col.isJson) {
+      const jsonStr = typeof val === "object" ? JSON.stringify(val, null, 2) : String(val);
+      return (
+        <pre className="font-mono text-xs text-emerald-400 whitespace-pre-wrap break-all max-h-40 overflow-y-auto leading-relaxed">
+          {jsonStr}
+        </pre>
+      );
+    }
+    if (col.fk) {
+      const displayVal = fkSettings[col.name]
+        ? (fkDisplayValues[col.name]?.[String(val)] ?? String(val))
+        : String(val);
+      return (
+        <button
+          type="button"
+          onClick={() => handleFkClick(col.fk!.table, val)}
+          className="inline-flex items-center gap-1 text-amber-400 hover:text-amber-300 font-mono text-xs transition-colors"
+        >
+          {displayVal}
+          <span className="opacity-60">↗</span>
+        </button>
+      );
+    }
+    return (
+      <span className={`text-sm break-all ${col.isPrimary ? "font-mono text-[var(--primary)]" : "text-[var(--foreground)]"}`}>
+        {String(val)}
+      </span>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
+
       {/* Delete confirmation modal */}
       {deleteConfirm && (
         <div
@@ -544,6 +633,152 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
         </div>
       )}
 
+      {/* Column visibility + sort config modal */}
+      {colConfigDraft && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setColConfigDraft(null)}
+        >
+          <div
+            className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">View settings</p>
+                <h2 className="font-semibold text-[var(--foreground)]">Columns &amp; default sort</h2>
+              </div>
+              <button
+                onClick={() => setColConfigDraft(null)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors text-lg leading-none mt-0.5"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Column checkboxes */}
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+                  Visible columns
+                  <span className="ml-1.5 text-[var(--primary)] font-mono normal-case">
+                    ({colConfigDraft.cols.size}/{schema.columns.length})
+                  </span>
+                </span>
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setColConfigDraft((prev) => prev ? { ...prev, cols: new Set(schema.columns.map((c) => c.name)) } : null)}
+                    className="text-[var(--primary)] hover:underline"
+                  >
+                    All
+                  </button>
+                  <span className="text-[var(--border)]">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setColConfigDraft((prev) => prev ? { ...prev, cols: new Set([schema.primaryKey]) } : null)}
+                    className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:underline transition-colors"
+                  >
+                    PK only
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-1 max-h-52 overflow-y-auto pr-1">
+                {schema.columns.map((col) => {
+                  const checked = colConfigDraft.cols.has(col.name);
+                  const isLast = colConfigDraft.cols.size === 1 && checked;
+                  return (
+                    <label
+                      key={col.name}
+                      className={`flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
+                        checked ? "bg-[var(--primary)]/8 hover:bg-[var(--primary)]/12" : "hover:bg-[var(--accent)]"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={isLast}
+                        onChange={(e) => {
+                          setColConfigDraft((prev) => {
+                            if (!prev) return null;
+                            const next = new Set(prev.cols);
+                            if (e.target.checked) {
+                              next.add(col.name);
+                            } else if (next.size > 1) {
+                              next.delete(col.name);
+                            }
+                            return { ...prev, cols: next };
+                          });
+                        }}
+                        className="w-3.5 h-3.5 rounded accent-[var(--primary)] cursor-pointer disabled:cursor-not-allowed"
+                      />
+                      <span className="font-mono text-xs text-[var(--foreground)] truncate flex-1">{col.name}</span>
+                      <span className="flex items-center gap-0.5 shrink-0">
+                        {col.isPrimary && <span className="text-[9px] text-[var(--primary)] font-bold">PK</span>}
+                        {col.fk && <span className="text-[9px] text-amber-400 font-bold">FK</span>}
+                        {col.isJson && <span className="text-[9px] text-emerald-400 font-bold">JS</span>}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Default sort */}
+            <div>
+              <span className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider block mb-2.5">Default sort</span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={colConfigDraft.sort}
+                  onChange={(e) => setColConfigDraft((prev) => prev ? { ...prev, sort: e.target.value } : null)}
+                  className="flex-1 px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                >
+                  {schema.columns.map((c) => (
+                    <option key={c.name} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setColConfigDraft((prev) => prev ? { ...prev, dir: prev.dir === "asc" ? "desc" : "asc" } : null)}
+                  className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] border border-[var(--border)] rounded-lg text-sm font-mono font-medium text-[var(--foreground)] transition-colors min-w-[72px] text-center"
+                >
+                  {colConfigDraft.dir === "asc" ? "ASC ↑" : "DESC ↓"}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+              <button
+                type="button"
+                onClick={() => setColConfigDraft({
+                  cols: new Set(schema.columns.map((c) => c.name)),
+                  sort: schema.primaryKey,
+                  dir: "asc",
+                })}
+                className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+              >
+                Reset to defaults
+              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setColConfigDraft(null)}
+                  className="px-4 py-2 text-sm rounded-lg bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] border border-[var(--border)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveColConfig}
+                  disabled={colConfigDraft.cols.size === 0}
+                  className="px-4 py-2 text-sm rounded-lg bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white font-medium transition-colors disabled:opacity-50"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sticky header: title + toolbar */}
       <div
         ref={stickyHeaderRef}
@@ -556,24 +791,38 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
               {schema.columns.length} columns &middot; PK: <span className="font-mono">{schema.primaryKey}</span>
             </p>
           </div>
-          {isAdmin && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openEncConfig()}
-                title="Configure field encryption"
-                className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
-              >
-                🔒 Encryption
-              </button>
-              <Link
-                href={`/dashboard/tables/${tableName}/new`}
-                className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                + New Record
-              </Link>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openColConfig}
+              title="Configure visible columns and default sort"
+              className={`px-3 py-2 rounded-lg text-sm transition-colors border ${
+                hiddenCount > 0
+                  ? "bg-[var(--primary)]/10 border-[var(--primary)]/30 text-[var(--primary)] hover:bg-[var(--primary)]/20"
+                  : "bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] border-[var(--border)]"
+              }`}
+            >
+              ⚙ Columns{hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ""}
+            </button>
+            {isAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => openEncConfig()}
+                  title="Configure field encryption"
+                  className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
+                >
+                  🔒 Encryption
+                </button>
+                <Link
+                  href={`/dashboard/tables/${tableName}/new`}
+                  className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  + New Record
+                </Link>
+              </>
+            )}
+          </div>
         </div>
         {pinnedRows.size > 0 && (
           <div className="flex items-center gap-3">
@@ -621,7 +870,7 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
         </div>
       )}
 
-      {/* Table — own scroll container so sticky thead works independently of page scroll */}
+      {/* Table */}
       <div className="border border-[var(--border)] rounded-xl overflow-hidden shadow-sm mt-4">
         <div
           className="overflow-auto"
@@ -630,17 +879,10 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-[#1a1b2e]" style={{ boxShadow: '0 2px 0 0 rgba(99,102,241,0.3)' }}>
               <tr>
-                {isAdmin && (
-                  <th className="px-4 py-3.5 text-left align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap w-px">
-                    Actions
-                  </th>
-                )}
-                {!isAdmin && (
-                  <th className="px-4 py-3.5 text-left align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap w-px">
-                    View
-                  </th>
-                )}
-                {schema.columns.map((col) => (
+                <th className="px-4 py-3.5 text-left align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap w-px">
+                  {isAdmin ? "Actions" : "View"}
+                </th>
+                {visibleColsList.map((col) => (
                   <th
                     key={col.name}
                     className="text-left px-4 py-3.5 align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-[var(--foreground)] transition-colors select-none"
@@ -671,13 +913,13 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={schema.columns.length + 1} className="px-4 py-8 text-center text-[var(--muted-foreground)]">
+                  <td colSpan={visibleColsList.length + 1} className="px-4 py-8 text-center text-[var(--muted-foreground)]">
                     Loading...
                   </td>
                 </tr>
               ) : result?.rows.length === 0 ? (
                 <tr>
-                  <td colSpan={schema.columns.length + 1} className="px-4 py-8 text-center text-[var(--muted-foreground)]">
+                  <td colSpan={visibleColsList.length + 1} className="px-4 py-8 text-center text-[var(--muted-foreground)]">
                     No records found
                   </td>
                 </tr>
@@ -685,98 +927,166 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
                 result?.rows.map((row, ri) => {
                   const id = String(row[schema.primaryKey]);
                   const isPinned = pinnedRows.has(id);
+                  const isExpanded = expandedRows.has(id);
                   return (
-                    <tr
-                      key={ri}
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest("a, button")) return;
-                        togglePin(id);
-                      }}
-                      className={`border-t border-[var(--border)] transition-colors cursor-pointer ${
-                        isPinned
-                          ? "bg-amber-400/20 hover:bg-amber-400/25"
-                          : ri % 2 === 0
-                          ? "bg-[var(--card)] hover:bg-[var(--primary)]/5"
-                          : "bg-[var(--muted)]/30 hover:bg-[var(--primary)]/5"
-                      }`}
-                    >
-                      {/* Actions column */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/dashboard/tables/${tableName}/${id}`}
-                            className="px-2.5 py-1 text-xs bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] rounded transition-colors border border-[var(--border)]"
-                          >
-                            {isAdmin ? "Edit" : "View"}
-                          </Link>
-                          {isAdmin && (
+                    <Fragment key={ri}>
+                      <tr
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).closest("a, button")) return;
+                          togglePin(id);
+                        }}
+                        className={`border-t border-[var(--border)] transition-colors cursor-pointer ${
+                          isPinned
+                            ? "bg-amber-400/20 hover:bg-amber-400/25"
+                            : ri % 2 === 0
+                            ? "bg-[var(--card)] hover:bg-[var(--primary)]/5"
+                            : "bg-[var(--muted)]/30 hover:bg-[var(--primary)]/5"
+                        }`}
+                      >
+                        {/* Actions + expand column */}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            {/* Expand toggle */}
                             <button
-                              onClick={() => setDeleteConfirm(id)}
-                              disabled={deleting === id}
-                              className="px-2.5 py-1 text-xs bg-[var(--destructive)]/10 hover:bg-[var(--destructive)]/20 text-[var(--destructive)] rounded transition-colors border border-[var(--destructive)]/20 disabled:opacity-50"
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleExpand(id); }}
+                              title={isExpanded ? "Collapse row" : "Expand all fields"}
+                              className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+                                isExpanded
+                                  ? "text-[var(--primary)] bg-[var(--primary)]/10"
+                                  : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]"
+                              }`}
                             >
-                              {deleting === id ? "..." : "Delete"}
+                              <svg
+                                className={`w-3 h-3 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                              >
+                                <path d="M8 5l8 7-8 7V5z" />
+                              </svg>
                             </button>
-                          )}
-                        </div>
-                      </td>
+                            <Link
+                              href={`/dashboard/tables/${tableName}/${id}`}
+                              className="px-2.5 py-1 text-xs bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] rounded transition-colors border border-[var(--border)]"
+                            >
+                              {isAdmin ? "Edit" : "View"}
+                            </Link>
+                            {isAdmin && (
+                              <button
+                                onClick={() => setDeleteConfirm(id)}
+                                disabled={deleting === id}
+                                className="px-2.5 py-1 text-xs bg-[var(--destructive)]/10 hover:bg-[var(--destructive)]/20 text-[var(--destructive)] rounded transition-colors border border-[var(--destructive)]/20 disabled:opacity-50"
+                              >
+                                {deleting === id ? "..." : "Delete"}
+                              </button>
+                            )}
+                          </div>
+                        </td>
 
-                      {schema.columns.map((col) => {
-                        const val = row[col.name];
-                        const text = formatCell(val, col.isJson);
-                        const isFk = !!col.fk && val !== null && val !== undefined;
+                        {visibleColsList.map((col) => {
+                          const val = row[col.name];
+                          const text = formatCell(val, col.isJson);
+                          const isFk = !!col.fk && val !== null && val !== undefined;
 
-                        if (isFk) {
-                          const displayVal = fkSettings[col.name]
-                            ? (fkDisplayValues[col.name]?.[String(val)] ?? text)
-                            : text;
+                          if (isFk) {
+                            const displayVal = fkSettings[col.name]
+                              ? (fkDisplayValues[col.name]?.[String(val)] ?? text)
+                              : text;
+                            return (
+                              <td key={col.name} className="px-4 py-3">
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleFkClick(col.fk!.table, val)}
+                                    className="inline-flex items-center gap-1.5 max-w-[160px] px-2.5 py-1 rounded-lg border border-amber-400/40 bg-amber-400/10 hover:bg-amber-400/20 hover:border-amber-400/70 text-amber-400 font-mono text-xs transition-colors"
+                                    title={`View related ${col.fk!.table} record (id: ${text})`}
+                                  >
+                                    <span className="truncate">{displayVal}</span>
+                                    <span className="shrink-0 opacity-60">↗</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openFkConfig(col)}
+                                    title="Configure display field"
+                                    className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-amber-400/40 hover:text-amber-400 hover:bg-amber-400/10 transition-colors text-xs"
+                                  >
+                                    ✎
+                                  </button>
+                                </div>
+                              </td>
+                            );
+                          }
+
                           return (
-                            <td key={col.name} className="px-4 py-3">
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleFkClick(col.fk!.table, val)}
-                                  className="inline-flex items-center gap-1.5 max-w-[160px] px-2.5 py-1 rounded-lg border border-amber-400/40 bg-amber-400/10 hover:bg-amber-400/20 hover:border-amber-400/70 text-amber-400 font-mono text-xs transition-colors"
-                                  title={`View related ${col.fk!.table} record (id: ${text})`}
-                                >
-                                  <span className="truncate">{displayVal}</span>
-                                  <span className="shrink-0 opacity-60">↗</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openFkConfig(col)}
-                                  title="Configure display field"
-                                  className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-amber-400/40 hover:text-amber-400 hover:bg-amber-400/10 transition-colors text-xs"
-                                >
-                                  ✎
-                                </button>
-                              </div>
+                            <td key={col.name} className="px-4 py-3 text-[var(--foreground)]">
+                              <span
+                                className={`block max-w-xs truncate ${
+                                  col.isJson
+                                    ? "font-mono text-emerald-400 text-xs"
+                                    : col.isPrimary
+                                    ? "font-mono text-[var(--primary)]"
+                                    : ""
+                                }`}
+                                title={text}
+                              >
+                                {val === null ? (
+                                  <span className="text-[var(--muted-foreground)] italic text-xs">null</span>
+                                ) : (
+                                  text
+                                )}
+                              </span>
                             </td>
                           );
-                        }
+                        })}
+                      </tr>
 
-                        return (
-                          <td key={col.name} className="px-4 py-3 text-[var(--foreground)]">
-                            <span
-                              className={`block max-w-xs truncate ${
-                                col.isJson
-                                  ? "font-mono text-emerald-400 text-xs"
-                                  : col.isPrimary
-                                  ? "font-mono text-[var(--primary)]"
-                                  : ""
-                              }`}
-                              title={text}
-                            >
-                              {val === null ? (
-                                <span className="text-[var(--muted-foreground)] italic text-xs">null</span>
-                              ) : (
-                                text
-                              )}
-                            </span>
+                      {/* Expanded row */}
+                      {isExpanded && (
+                        <tr className="border-t-0">
+                          <td colSpan={visibleColsList.length + 1} className="px-4 pt-0 pb-3">
+                            <div className="rounded-lg border border-[var(--primary)]/20 bg-[var(--primary)]/4 p-4">
+                              <p className="text-[9px] font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-3 flex items-center gap-2">
+                                <span>All fields</span>
+                                <span className="text-[var(--border)]">·</span>
+                                <span>{schema.columns.length} columns</span>
+                                {hiddenCount > 0 && (
+                                  <>
+                                    <span className="text-[var(--border)]">·</span>
+                                    <span className="text-[var(--primary)]">{hiddenCount} hidden in table</span>
+                                  </>
+                                )}
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {schema.columns.map((col) => {
+                                  const val = row[col.name];
+                                  const isHidden = !visibleCols.has(col.name);
+                                  return (
+                                    <div
+                                      key={col.name}
+                                      className={`min-w-[140px] flex-1 basis-[140px] max-w-xs rounded-lg px-3 py-2.5 border transition-colors ${
+                                        isHidden
+                                          ? "bg-[var(--primary)]/6 border-[var(--primary)]/25"
+                                          : "bg-[var(--background)] border-[var(--border)]"
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-1 mb-1.5">
+                                        <span className="text-[10px] font-mono text-[var(--muted-foreground)] truncate">{col.name}</span>
+                                        {col.isPrimary && <span className="text-[8px] text-[var(--primary)] font-bold shrink-0">PK</span>}
+                                        {col.fk && <span className="text-[8px] text-amber-400 font-bold shrink-0">FK</span>}
+                                        {col.isJson && <span className="text-[8px] text-emerald-400 font-bold shrink-0">JSON</span>}
+                                        {encSettings[col.name] && <span className="text-[8px] text-violet-400 shrink-0">🔒</span>}
+                                        {isHidden && <span className="text-[8px] text-[var(--primary)]/60 shrink-0 ml-auto">hidden</span>}
+                                      </div>
+                                      {renderExpandedValue(col, val)}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </td>
-                        );
-                      })}
-                    </tr>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })
               )}
