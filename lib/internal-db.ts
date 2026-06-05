@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import type { User, FkDisplaySetting, EncryptionSetting } from "./types";
+import type { User, FkDisplaySetting, EncryptionSetting, AuditLog } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { createClient } = require("@libsql/client");
@@ -79,6 +79,20 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
     read_only      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (db_fingerprint, user_id, table_name, column_name)
   )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS audit_logs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    db_fingerprint TEXT NOT NULL,
+    user_id        INTEGER,
+    username       TEXT NOT NULL,
+    action         TEXT NOT NULL,
+    table_name     TEXT,
+    record_id      TEXT,
+    changes        TEXT,
+    ip             TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_audit_fp_time
+    ON audit_logs(db_fingerprint, created_at DESC)`);
 }
 
 async function db(): Promise<LibsqlClient> {
@@ -506,4 +520,81 @@ export async function restoreAllSettings(backup: {
   }
 
   return { skipped_users };
+}
+
+// ── Audit log ───────────────────────────────────────────────────────────────
+
+export async function logAudit(entry: {
+  userId?: number | null;
+  username: string;
+  action: string;
+  tableName?: string;
+  recordId?: string;
+  changes?: { before?: Record<string, unknown>; after?: Record<string, unknown> };
+  ip?: string | null;
+}): Promise<void> {
+  const fingerprint = getDbFingerprint();
+  const c = await db();
+  await c.execute({
+    sql: `INSERT INTO audit_logs (db_fingerprint, user_id, username, action, table_name, record_id, changes, ip, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    args: [
+      fingerprint,
+      entry.userId ?? null,
+      entry.username,
+      entry.action,
+      entry.tableName ?? null,
+      entry.recordId ?? null,
+      entry.changes ? JSON.stringify(entry.changes) : null,
+      entry.ip ?? null,
+    ],
+  });
+}
+
+export async function getAuditLogs(opts: {
+  page?: number;
+  pageSize?: number;
+  action?: string;
+  tableName?: string;
+  username?: string;
+  from?: string;
+  to?: string;
+}): Promise<{ logs: AuditLog[]; total: number }> {
+  const fingerprint = getDbFingerprint();
+  const c = await db();
+  const { page = 1, pageSize = 50, action, tableName, username, from, to } = opts;
+  const offset = (Math.max(1, page) - 1) * pageSize;
+
+  const conditions: string[] = ["db_fingerprint = ?"];
+  const args: unknown[] = [fingerprint];
+
+  if (action) { conditions.push("action = ?"); args.push(action); }
+  if (tableName) { conditions.push("table_name = ?"); args.push(tableName); }
+  if (username) { conditions.push("username LIKE ?"); args.push(`%${username}%`); }
+  if (from) { conditions.push("created_at >= ?"); args.push(from); }
+  if (to) { conditions.push("created_at <= ?"); args.push(`${to} 23:59:59`); }
+
+  const where = conditions.join(" AND ");
+
+  const countResult = await c.execute({ sql: `SELECT COUNT(*) as total FROM audit_logs WHERE ${where}`, args });
+  const rows = await c.execute({
+    sql: `SELECT * FROM audit_logs WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    args: [...args, pageSize, offset],
+  });
+
+  return {
+    total: Number(countResult.rows[0]?.total ?? 0),
+    logs: rows.rows.map((r) => ({
+      id: Number(r.id),
+      db_fingerprint: String(r.db_fingerprint),
+      user_id: r.user_id != null ? Number(r.user_id) : null,
+      username: String(r.username),
+      action: String(r.action) as AuditLog["action"],
+      table_name: r.table_name != null ? String(r.table_name) : null,
+      record_id: r.record_id != null ? String(r.record_id) : null,
+      changes: r.changes != null ? (() => { try { return JSON.parse(String(r.changes)); } catch { return null; } })() : null,
+      ip: r.ip != null ? String(r.ip) : null,
+      created_at: String(r.created_at),
+    })),
+  };
 }
