@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import type { PaginatedResult, SchemaTable, Column } from "@/lib/types";
+import type { PaginatedResult, SchemaTable, Column, TablePolicy } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
 
 interface FkModal {
@@ -32,13 +32,22 @@ interface ColConfigDraft {
   dir: "asc" | "desc";
 }
 
+interface PolicyUser {
+  id: number;
+  username: string;
+  table: { can_view: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean };
+  columns: Record<string, { hidden: boolean; read_only: boolean }>;
+}
+
 interface Props {
   tableName: string;
   schema: SchemaTable;
   isAdmin: boolean;
+  tablePolicy?: TablePolicy;
+  columnPolicies?: Record<string, { hidden: boolean; read_only: boolean }>;
 }
 
-export function DataTable({ tableName, schema, isAdmin }: Props) {
+export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolicies = {} }: Props) {
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [result, setResult] = useState<PaginatedResult | null>(null);
@@ -66,6 +75,16 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
     () => new Set(schema.columns.map((c) => c.name))
   );
   const [colConfigDraft, setColConfigDraft] = useState<ColConfigDraft | null>(null);
+
+  // Policies modal (admin only)
+  const [policyUsers, setPolicyUsers] = useState<PolicyUser[] | null>(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const [policySaving, setPolicySaving] = useState(false);
+
+  // Effective permissions for current user
+  const canInsert = isAdmin || (tablePolicy?.can_insert ?? true);
+  const canUpdate = isAdmin || (tablePolicy?.can_update ?? true);
+  const canDelete = isAdmin || (tablePolicy?.can_delete ?? true);
 
   const pageSize = 50;
 
@@ -295,6 +314,57 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
       }),
     }).catch(() => {});
     setColConfigDraft(null);
+  }
+
+  async function openPolicyModal() {
+    setPolicyLoading(true);
+    setPolicyUsers(null);
+    try {
+      const res = await fetch(`${basePath}/api/policies?table=${encodeURIComponent(tableName)}`);
+      const data = await res.json();
+      setPolicyUsers(data.users ?? []);
+    } catch {
+      setPolicyUsers([]);
+    } finally {
+      setPolicyLoading(false);
+    }
+  }
+
+  async function savePolicyTable(userId: number, field: keyof PolicyUser["table"], value: boolean) {
+    if (!policyUsers) return;
+    const user = policyUsers.find((u) => u.id === userId);
+    if (!user) return;
+    const updated = { ...user.table, [field]: value };
+    setPolicyUsers((prev) => prev?.map((u) => u.id === userId ? { ...u, table: updated } : u) ?? null);
+    setPolicySaving(true);
+    try {
+      await fetch(`${basePath}/api/policies`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "table", userId, table: tableName, ...updated }),
+      });
+    } finally {
+      setPolicySaving(false);
+    }
+  }
+
+  async function savePolicyColumn(userId: number, column: string, field: "hidden" | "read_only", value: boolean) {
+    if (!policyUsers) return;
+    const user = policyUsers.find((u) => u.id === userId);
+    if (!user) return;
+    const existing = user.columns[column] ?? { hidden: false, read_only: false };
+    const updated = { ...existing, [field]: value };
+    setPolicyUsers((prev) => prev?.map((u) => u.id === userId ? { ...u, columns: { ...u.columns, [column]: updated } } : u) ?? null);
+    setPolicySaving(true);
+    try {
+      await fetch(`${basePath}/api/policies`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "column", userId, table: tableName, column, ...updated }),
+      });
+    } finally {
+      setPolicySaving(false);
+    }
   }
 
   function openEncConfig(colName?: string) {
@@ -779,6 +849,141 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
         </div>
       )}
 
+      {/* Policies modal */}
+      {(policyLoading || policyUsers !== null) && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setPolicyUsers(null)}
+        >
+          <div
+            className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] shrink-0">
+              <div>
+                <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-0.5">Access policies</p>
+                <h2 className="font-semibold text-[var(--foreground)] font-mono">{tableName}</h2>
+              </div>
+              <div className="flex items-center gap-3">
+                {policySaving && <span className="text-xs text-[var(--muted-foreground)] animate-pulse">Saving…</span>}
+                <button
+                  onClick={() => setPolicyUsers(null)}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors text-lg leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-6">
+              {policyLoading ? (
+                <p className="text-center text-[var(--muted-foreground)] py-10">Loading…</p>
+              ) : !policyUsers || policyUsers.length === 0 ? (
+                <p className="text-center text-[var(--muted-foreground)] py-10">No non-admin users found.</p>
+              ) : (
+                <>
+                  {/* Table-level permissions */}
+                  <div>
+                    <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">Table access</p>
+                    <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-[var(--secondary)]">
+                          <tr>
+                            <th className="px-4 py-2.5 text-left font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-wider">User</th>
+                            {(["can_view", "can_insert", "can_update", "can_delete"] as const).map((f) => (
+                              <th key={f} className="px-4 py-2.5 text-center font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-wider">
+                                {f.replace("can_", "")}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {policyUsers.map((u) => (
+                            <tr key={u.id} className="border-t border-[var(--border)] even:bg-[var(--muted)]/20">
+                              <td className="px-4 py-2.5 font-mono text-xs text-[var(--foreground)]">{u.username}</td>
+                              {(["can_view", "can_insert", "can_update", "can_delete"] as const).map((f) => (
+                                <td key={f} className="px-4 py-2.5 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={u.table[f]}
+                                    onChange={(e) => savePolicyTable(u.id, f, e.target.checked)}
+                                    className="w-4 h-4 rounded accent-[var(--primary)] cursor-pointer"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Column-level permissions */}
+                  {schema.columns.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">Column access</p>
+                      <div className="flex flex-col gap-3">
+                        {policyUsers.map((u) => {
+                          const hiddenCount = Object.values(u.columns).filter((c) => c.hidden).length;
+                          const roCount = Object.values(u.columns).filter((c) => c.read_only).length;
+                          return (
+                            <div key={u.id} className="border border-[var(--border)] rounded-lg overflow-hidden">
+                              <div className="bg-[var(--secondary)] px-4 py-2 flex items-center gap-3">
+                                <span className="font-mono text-xs font-semibold text-[var(--foreground)]">{u.username}</span>
+                                <span className="text-xs text-[var(--muted-foreground)]">
+                                  {hiddenCount > 0 || roCount > 0
+                                    ? [hiddenCount > 0 && `${hiddenCount} hidden`, roCount > 0 && `${roCount} read-only`].filter(Boolean).join(" · ")
+                                    : "Full column access"}
+                                </span>
+                              </div>
+                              <div className="p-3">
+                                <div className="grid gap-x-3 gap-y-0.5 items-center" style={{ gridTemplateColumns: "1fr auto auto" }}>
+                                  <div className="text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider pb-1.5">Column</div>
+                                  <div className="text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center pb-1.5 w-16">Hidden</div>
+                                  <div className="text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider text-center pb-1.5 w-20">Read-only</div>
+                                  {schema.columns.map((col) => {
+                                    const cp = u.columns[col.name] ?? { hidden: false, read_only: false };
+                                    return (
+                                      <Fragment key={col.name}>
+                                        <span className="font-mono text-xs text-[var(--foreground)] py-1 flex items-center gap-1">
+                                          {col.name}
+                                          {col.isPrimary && <span className="text-[8px] text-[var(--primary)] font-bold">PK</span>}
+                                          {col.fk && <span className="text-[8px] text-amber-400 font-bold">FK</span>}
+                                        </span>
+                                        <div className="flex justify-center">
+                                          <input
+                                            type="checkbox"
+                                            checked={cp.hidden}
+                                            onChange={(e) => savePolicyColumn(u.id, col.name, "hidden", e.target.checked)}
+                                            className="w-3.5 h-3.5 rounded accent-[var(--primary)] cursor-pointer"
+                                          />
+                                        </div>
+                                        <div className="flex justify-center">
+                                          <input
+                                            type="checkbox"
+                                            checked={cp.read_only}
+                                            onChange={(e) => savePolicyColumn(u.id, col.name, "read_only", e.target.checked)}
+                                            className="w-3.5 h-3.5 rounded accent-[var(--primary)] cursor-pointer"
+                                          />
+                                        </div>
+                                      </Fragment>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sticky header: title + toolbar */}
       <div
         ref={stickyHeaderRef}
@@ -808,19 +1013,29 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
               <>
                 <button
                   type="button"
+                  onClick={openPolicyModal}
+                  title="Manage per-user access policies"
+                  className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
+                >
+                  👥 Policies
+                </button>
+                <button
+                  type="button"
                   onClick={() => openEncConfig()}
                   title="Configure field encryption"
                   className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
                 >
                   🔒 Encryption
                 </button>
-                <Link
-                  href={`/dashboard/tables/${tableName}/new`}
-                  className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded-lg text-sm font-medium transition-colors"
-                >
-                  + New Record
-                </Link>
               </>
+            )}
+            {canInsert && (
+              <Link
+                href={`/dashboard/tables/${tableName}/new`}
+                className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                + New Record
+              </Link>
             )}
           </div>
         </div>
@@ -969,9 +1184,9 @@ export function DataTable({ tableName, schema, isAdmin }: Props) {
                               href={`/dashboard/tables/${tableName}/${id}`}
                               className="px-2.5 py-1 text-xs bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] rounded transition-colors border border-[var(--border)]"
                             >
-                              {isAdmin ? "Edit" : "View"}
+                              {canUpdate ? "Edit" : "View"}
                             </Link>
-                            {isAdmin && (
+                            {canDelete && (
                               <button
                                 onClick={() => setDeleteConfirm(id)}
                                 disabled={deleting === id}

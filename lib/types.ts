@@ -68,3 +68,15 @@ export interface EncryptionSetting {
   algorithm: string;
   salt_column: string | null;
 }
+
+export interface TablePolicy {
+  can_view: boolean;
+  can_insert: boolean;
+  can_update: boolean;
+  can_delete: boolean;
+}
+
+export interface ColumnPolicy {
+  hidden: boolean;
+  read_only: boolean;
+}

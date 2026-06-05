@@ -14,6 +14,8 @@ interface Props {
   initialData?: Record<string, unknown>;
   mode: "create" | "edit";
   recordId?: string;
+  readOnly?: boolean;
+  columnPolicies?: Record<string, { hidden: boolean; read_only: boolean }>;
 }
 
 interface EncModal {
@@ -25,7 +27,7 @@ interface EncModal {
   loading: boolean;
 }
 
-export function RecordForm({ tableName, schema, initialData, mode, recordId }: Props) {
+export function RecordForm({ tableName, schema, initialData, mode, recordId, readOnly = false, columnPolicies = {} }: Props) {
   const router = useRouter();
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     if (initialData) return initialData;
@@ -230,10 +232,13 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId }: P
       )}
 
       {schema.columns.map((col) => {
-        const isDisabled = col.isPrimary || (col.isAutoIncrement && mode === "create");
+        const colPolicy = columnPolicies[col.name];
+        if (colPolicy?.hidden) return null;
+
+        const isDisabled = readOnly || colPolicy?.read_only || col.isPrimary || (col.isAutoIncrement && mode === "create");
         const value = values[col.name];
 
-        if (isDisabled && mode === "create") return null;
+        if ((col.isPrimary || col.isAutoIncrement) && mode === "create") return null;
 
         return (
           <div key={col.name}>
@@ -352,19 +357,23 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId }: P
       )}
 
       <div className="flex items-center gap-3 pt-2">
-        <button
-          type="submit"
-          disabled={saving}
-          className="px-5 py-2.5 bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
-        >
-          {saving ? "Saving..." : mode === "create" ? "Create Record" : "Save Changes"}
-        </button>
+        {readOnly ? (
+          <span className="text-sm text-[var(--muted-foreground)] italic">Read-only — you do not have permission to edit this record.</span>
+        ) : (
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-5 py-2.5 bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+          >
+            {saving ? "Saving..." : mode === "create" ? "Create Record" : "Save Changes"}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => router.back()}
           className="px-5 py-2.5 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] rounded-lg font-medium text-sm transition-colors border border-[var(--border)]"
         >
-          Cancel
+          {readOnly ? "Back" : "Cancel"}
         </button>
       </div>
     </form>
