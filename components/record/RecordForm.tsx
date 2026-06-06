@@ -158,7 +158,7 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
-      {/* Encrypt value modal */}
+      {/* Hash value modal */}
       {encModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -169,13 +169,13 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">Encrypt value</p>
+              <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">Set hashed value</p>
               <h2 className="font-semibold text-[var(--foreground)] font-mono">{encModal.column}</h2>
-              <p className="text-xs text-[var(--muted-foreground)] mt-1">Algorithm: <span className="text-violet-400">{encModal.algorithm}</span></p>
+              <p className="text-xs text-[var(--muted-foreground)] mt-1">Algorithm: <span className="text-violet-400">{encModal.algorithm}</span> · The plaintext you enter will be hashed and placed in the field — the original value is never stored.</p>
             </div>
             <div className="flex flex-col gap-3">
               <div>
-                <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Raw value</label>
+                <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Plaintext value</label>
                 <input
                   type="text"
                   value={encModal.rawValue}
@@ -224,7 +224,7 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
                 disabled={encModal.loading || !encModal.rawValue}
                 className="px-4 py-2 text-sm rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors disabled:opacity-50"
               >
-                {encModal.loading ? "Encrypting…" : "Encrypt →"}
+                {encModal.loading ? "Hashing…" : "Hash & apply →"}
               </button>
             </div>
           </div>
@@ -341,9 +341,10 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
               <button
                 type="button"
                 onClick={() => openEncModal(col.name)}
+                title={`Enter the new plaintext value — Strawdmin will hash it with ${encSettings[col.name]?.algorithm} and put the result in this field, matching what your application stores. Useful for support staff resetting hashed fields like passwords without needing to know the hash format.`}
                 className="mt-1.5 text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1 transition-colors"
               >
-                🔐 Set encrypted value
+                🔐 Set hashed value
               </button>
             )}
           </div>
