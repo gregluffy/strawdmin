@@ -1,5 +1,21 @@
 # Tests
 
+## Prerequisites
+
+- **Node.js** 18 or later (`node --version` to check)
+- **npm** 9 or later (ships with Node 18+)
+
+## Setup
+
+Install dependencies first — this also installs `vitest` and `@vitest/coverage-v8`:
+
+```bash
+npm install
+```
+
+You do **not** need a running database or a `.env` file. The test environment uses
+in-memory SQLite and a stub JWT secret defined in `vitest.config.ts`.
+
 ## Running tests
 
 ```bash
