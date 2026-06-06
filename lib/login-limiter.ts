@@ -70,3 +70,8 @@ export function recordLoginSuccess(ip: string | null, username: string): void {
   recordSuccess(`ip:${ip ?? "unknown"}`);
   recordSuccess(`user:${username.toLowerCase()}`);
 }
+
+/** @internal */
+export function _resetForTesting(): void {
+  store.clear();
+}

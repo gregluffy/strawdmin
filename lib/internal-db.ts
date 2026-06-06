@@ -18,12 +18,17 @@ function getDataDir(): string {
 
 function getDb(): { client: LibsqlClient; ready: Promise<void> } {
   if (!client) {
-    const dataDir = getDataDir();
-    fs.mkdirSync(dataDir, { recursive: true });
-    // Normalize to forward slashes — @libsql/client requires a valid file: URL
-    // and Windows path.join() returns backslashes which break the URL parser.
-    const dbPath = path.join(dataDir, "app.db").replace(/\\/g, "/");
-    client = createClient({ url: `file:${dbPath}` });
+    const overrideUrl = process.env.INTERNAL_DB_URL;
+    if (overrideUrl) {
+      client = createClient({ url: overrideUrl });
+    } else {
+      const dataDir = getDataDir();
+      fs.mkdirSync(dataDir, { recursive: true });
+      // Normalize to forward slashes — @libsql/client requires a valid file: URL
+      // and Windows path.join() returns backslashes which break the URL parser.
+      const dbPath = path.join(dataDir, "app.db").replace(/\\/g, "/");
+      client = createClient({ url: `file:${dbPath}` });
+    }
     ready = ensureTables(client as LibsqlClient);
   }
   return { client: client!, ready: ready! };
@@ -549,6 +554,12 @@ export async function logAudit(entry: {
       entry.ip ?? null,
     ],
   });
+}
+
+/** @internal */
+export function _resetForTesting(): void {
+  client = null;
+  ready = null;
 }
 
 export async function getAuditLogs(opts: {
