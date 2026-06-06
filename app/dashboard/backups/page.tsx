@@ -96,7 +96,7 @@ export default function BackupsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (fileInputRef.current) fileInputRef.current.value = "";
-    if (!confirm(`Restore settings from "${file.name}"? This will overwrite all current app settings (FK mappings, encryption, view settings, policies) for this database.`)) return;
+    if (!confirm(`Restore settings from "${file.name}"? This will overwrite all current app settings (FK mappings, write-time hashing, view settings, policies) for this database.`)) return;
     setSettingsImporting(true);
     setSettingsMessage(null);
     try {
@@ -222,7 +222,7 @@ export default function BackupsPage() {
         <div className="mb-4">
           <h2 className="text-base font-semibold text-[var(--foreground)]">App Settings Backup</h2>
           <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-            Export or import all app settings for the current database: FK display mappings, encryption settings, column view preferences, and user access policies.
+            Export or import all app settings for the current database: FK display mappings, write-time hashing settings, column view preferences, and user access policies.
           </p>
         </div>
 

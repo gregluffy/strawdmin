@@ -47,7 +47,7 @@ SQL generation helpers (identifier quoting, parameter placeholders, binary seria
 A local SQLite file at `data/app.db` (via `@libsql/client`). Managed entirely in [lib/internal-db.ts](lib/internal-db.ts). Stores:
 - **users** — bcrypt-hashed passwords, roles (`admin` | `user`)
 - **fk_display_settings** — per-table FK column → display field mappings
-- **field_encryption_settings** — per-column encryption config (SHA256/SHA512 + optional salt column)
+- **field_encryption_settings** — per-column write-time hashing config (SHA256/SHA512 + optional salt column); UI calls this "write-time hashing", DB table name kept for backwards compatibility
 
 Settings rows are keyed by a `db_fingerprint` (`DB_TYPE:DB_CONNECTION_STRING`) and pruned automatically when the fingerprint changes (i.e., when you switch databases).
 

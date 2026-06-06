@@ -615,7 +615,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
         </div>
       )}
 
-      {/* Encryption config modal */}
+      {/* Hashing config modal */}
       {encConfig && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -626,9 +626,11 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">Field encryption</p>
+              <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">Write-time hashing</p>
               <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                Configure how a column&apos;s value is hashed when editing records.
+                Mark a column whose values should be hashed before writing. Match the algorithm your application uses.
+                Once set, support staff can type a plaintext value (e.g. a new password) in the record editor and
+                Strawdmin will hash it automatically — storing the same hash your application would have produced.
               </p>
             </div>
             <div className="flex flex-col gap-3">
@@ -1022,10 +1024,10 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                 <button
                   type="button"
                   onClick={() => openEncConfig()}
-                  title="Configure field encryption"
+                  title="Configure write-time hashing · Mark columns that store hashed values (e.g. passwords). Support staff can then type the plaintext value when editing a record and Strawdmin hashes it automatically — matching what your application stores."
                   className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
                 >
-                  🔒 Encryption
+                  🔒 Hashing
                 </button>
               </>
             )}

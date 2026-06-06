@@ -11,7 +11,7 @@ Supports **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server**, and **SQLite**.
 - **Table browser** — paginated table view with search and column sorting
 - **CRUD** — create, read, update, and delete rows; JSON columns get a Monaco editor
 - **FK display** — configure which field to show for foreign key columns instead of raw IDs
-- **Field encryption** — mark columns as SHA-256 or SHA-512 hashed; values are hashed before being written to the database
+- **Write-time hashing** — mark columns that your application stores as hashes (e.g. passwords). When editing a record, support staff can enter the plaintext value and Strawdmin hashes it with the configured algorithm (SHA-256 or SHA-512, with optional salt) before saving — producing the same hash your application would store
 - **Backups** — full JSON export of all tables; restore individual backups
 - **User management** — multiple users with `admin` / `user` roles
 - **Sub-path deployment** — run behind a reverse proxy at any base path without rebuilding
@@ -113,3 +113,11 @@ The internal app state (users, settings) is stored in a SQLite database at `data
 volumes:
   - ./data:/app/data
 ```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+See [DISCLAIMER.md](DISCLAIMER.md) for warranty, security, and data-safety notices.
