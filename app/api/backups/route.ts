@@ -28,10 +28,35 @@ export async function GET() {
   }
 }
 
+const BACKUP_ROW_LIMIT = 100_000;
+
 export async function POST() {
   try {
     const schema = await introspect();
     const driver = getDriver();
+
+    // Pre-flight: count total rows across all tables to avoid loading a huge
+    // database into memory. COUNT(*) is valid in all supported dialects.
+    let totalRows = 0;
+    for (const table of schema.tables) {
+      try {
+        const result = await driver.query(`SELECT COUNT(*) as c FROM ${driver.quote(table.name)}`);
+        totalRows += Number(result[0]?.c ?? 0);
+      } catch {
+        // inaccessible table — will also be skipped during export
+      }
+    }
+    if (totalRows > BACKUP_ROW_LIMIT) {
+      return NextResponse.json(
+        {
+          error:
+            `This database has ${totalRows.toLocaleString()} rows across all tables. ` +
+            `The built-in backup is limited to ${BACKUP_ROW_LIMIT.toLocaleString()} rows. ` +
+            `Use your database's native export tool (pg_dump, mysqldump, etc.) for large databases.`,
+        },
+        { status: 413 }
+      );
+    }
 
     const tables: Record<string, Record<string, unknown>[]> = {};
     const skipped: string[] = [];

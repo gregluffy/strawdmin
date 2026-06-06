@@ -40,7 +40,7 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(checkLoginAllowed).mockReturnValue({ blocked: false, retryAfterMs: 0 });
+  vi.mocked(checkLoginAllowed).mockResolvedValue({ blocked: false, retryAfterMs: 0 });
   vi.mocked(getUserByUsername).mockResolvedValue(null);
   vi.mocked(logAudit).mockResolvedValue(undefined);
   vi.mocked(signToken).mockResolvedValue("mock-jwt-token");
@@ -68,7 +68,7 @@ describe("input validation", () => {
 
 describe("rate limiting", () => {
   it("returns 429 when checkLoginAllowed is blocked", async () => {
-    vi.mocked(checkLoginAllowed).mockReturnValue({ blocked: true, retryAfterMs: 60_000 });
+    vi.mocked(checkLoginAllowed).mockResolvedValue({ blocked: true, retryAfterMs: 60_000 });
     const res = await POST(makeRequest({ username: "alice", password: "pass" }));
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("60");
@@ -77,7 +77,7 @@ describe("rate limiting", () => {
   });
 
   it("rounds Retry-After up (ceil)", async () => {
-    vi.mocked(checkLoginAllowed).mockReturnValue({ blocked: true, retryAfterMs: 60_001 });
+    vi.mocked(checkLoginAllowed).mockResolvedValue({ blocked: true, retryAfterMs: 60_001 });
     const res = await POST(makeRequest({ username: "alice", password: "pass" }));
     expect(res.headers.get("Retry-After")).toBe("61");
   });
