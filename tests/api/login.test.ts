@@ -11,9 +11,9 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/login-limiter", () => ({
-  checkLoginAllowed: vi.fn().mockReturnValue({ blocked: false, retryAfterMs: 0 }),
-  recordLoginFailure: vi.fn(),
-  recordLoginSuccess: vi.fn(),
+  checkLoginAllowed: vi.fn().mockResolvedValue({ blocked: false, retryAfterMs: 0 }),
+  recordLoginFailure: vi.fn().mockResolvedValue(undefined),
+  recordLoginSuccess: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("bcryptjs", () => ({

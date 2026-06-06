@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Username and password required" }, { status: 400 });
     }
 
-    const { blocked, retryAfterMs } = checkLoginAllowed(ip, username);
+    const { blocked, retryAfterMs } = await checkLoginAllowed(ip, username);
     if (blocked) {
       const retryAfterSec = Math.ceil(retryAfterMs / 1000);
       return NextResponse.json(
@@ -25,19 +25,19 @@ export async function POST(req: NextRequest) {
 
     const user = await getUserByUsername(username);
     if (!user) {
-      recordLoginFailure(ip, username);
+      await recordLoginFailure(ip, username);
       logAudit({ username, action: "LOGIN_FAILED", ip }).catch(() => {});
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
-      recordLoginFailure(ip, username);
+      await recordLoginFailure(ip, username);
       logAudit({ userId: user.id, username: user.username, action: "LOGIN_FAILED", ip }).catch(() => {});
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    recordLoginSuccess(ip, username);
+    await recordLoginSuccess(ip, username);
     const token = await signToken({ sub: user.id, username: user.username, role: user.role });
     logAudit({ userId: user.id, username: user.username, action: "LOGIN", ip }).catch(() => {});
 
