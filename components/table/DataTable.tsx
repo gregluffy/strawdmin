@@ -1160,13 +1160,13 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                       >
                         {/* Actions + expand column */}
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-0.5">
                             {/* Expand toggle */}
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); toggleExpand(id); }}
                               title={isExpanded ? "Collapse row" : "Expand all fields"}
-                              className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+                              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
                                 isExpanded
                                   ? "text-[var(--primary)] bg-[var(--primary)]/10"
                                   : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]"
@@ -1180,19 +1180,53 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                                 <path d="M8 5l8 7-8 7V5z" />
                               </svg>
                             </button>
+
+                            {/* Edit / View */}
                             <Link
                               href={`/dashboard/tables/${tableName}/${id}`}
-                              className="px-2.5 py-1 text-xs bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] rounded transition-colors border border-[var(--border)]"
+                              title={canUpdate ? "Edit record" : "View record"}
+                              className="w-7 h-7 flex items-center justify-center rounded transition-colors text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]"
                             >
-                              {canUpdate ? "Edit" : "View"}
+                              {canUpdate ? (
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                                  <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61z" />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                                  <path d="M1.679 7.932c.412-.621 1.242-1.75 2.366-2.717C5.175 4.242 6.527 3.5 8 3.5c1.473 0 2.824.742 3.955 1.715 1.124.967 1.954 2.096 2.366 2.717a.119.119 0 0 1 0 .136c-.412.621-1.242 1.75-2.366 2.717C10.825 11.758 9.473 12.5 8 12.5c-1.473 0-2.824-.742-3.955-1.715C2.92 9.818 2.09 8.69 1.679 8.068a.119.119 0 0 1 0-.136ZM8 2c-1.981 0-3.67.992-4.933 2.078C1.797 5.169.88 6.423.43 7.1a1.619 1.619 0 0 0 0 1.798c.45.678 1.367 1.932 2.637 3.024C4.329 13.008 6.019 14 8 14c1.981 0 3.67-.992 4.933-2.078 1.27-1.092 2.187-2.346 2.637-3.024a1.619 1.619 0 0 0 0-1.798c-.45-.678-1.367-1.932-2.637-3.024C11.671 2.992 9.981 2 8 2Zm0 7.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
+                                </svg>
+                              )}
                             </Link>
+
+                            {/* Duplicate */}
+                            {canInsert && (
+                              <Link
+                                href={`/dashboard/tables/${tableName}/new?from=${id}`}
+                                title="Duplicate row"
+                                className="w-7 h-7 flex items-center justify-center rounded transition-colors text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--accent)]"
+                              >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                                  <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z" />
+                                  <path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z" />
+                                </svg>
+                              </Link>
+                            )}
+
+                            {/* Delete */}
                             {canDelete && (
                               <button
                                 onClick={() => setDeleteConfirm(id)}
                                 disabled={deleting === id}
-                                className="px-2.5 py-1 text-xs bg-[var(--destructive)]/10 hover:bg-[var(--destructive)]/20 text-[var(--destructive)] rounded transition-colors border border-[var(--destructive)]/20 disabled:opacity-50"
+                                title="Delete record"
+                                className="w-7 h-7 flex items-center justify-center rounded transition-colors text-[var(--muted-foreground)] hover:text-[var(--destructive)] hover:bg-[var(--destructive)]/10 disabled:opacity-50"
                               >
-                                {deleting === id ? "..." : "Delete"}
+                                {deleting === id ? (
+                                  <span className="text-[10px]">…</span>
+                                ) : (
+                                  <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.748 1.748 0 0 1 10.595 15h-5.19a1.75 1.75 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z" />
+                                  </svg>
+                                )}
                               </button>
                             )}
                           </div>
