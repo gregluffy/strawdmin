@@ -38,6 +38,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
+          <img src={`${basePath}/logo.svg`} alt="Strawdmin" className="w-16 h-14 mx-auto mb-3" />
           <h1 className="text-3xl font-bold text-[var(--foreground)]">Strawdmin</h1>
           <p className="text-[var(--muted-foreground)] mt-1">Sign in to your account</p>
         </div>

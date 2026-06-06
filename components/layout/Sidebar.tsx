@@ -27,22 +27,20 @@ export function Sidebar() {
       } shrink-0`}
     >
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-[var(--border)]">
-        <button
-          onClick={() => setOpen(!open)}
-          className="w-6 h-6 flex flex-col justify-center gap-1 shrink-0"
-          aria-label="Toggle sidebar"
-        >
-          <span className="block h-0.5 bg-[var(--muted-foreground)]" />
-          <span className="block h-0.5 bg-[var(--muted-foreground)]" />
-          <span className="block h-0.5 bg-[var(--muted-foreground)]" />
-        </button>
+      <button
+        onClick={() => setOpen(!open)}
+        title={open ? "Collapse sidebar" : "Expand sidebar"}
+        className={`flex items-center border-b border-[var(--border)] hover:bg-[var(--accent)] transition-colors shrink-0 ${
+          open ? "gap-3 px-4 py-3 w-full" : "justify-center px-0 py-3 w-full"
+        }`}
+      >
+        <img src={`${basePath}/logo.svg`} alt="Strawdmin" className="w-9 h-8 shrink-0" />
         {open && (
-          <Link href="/dashboard" className="text-lg font-bold text-[var(--foreground)] truncate">
+          <span className="text-base font-bold text-[var(--foreground)] truncate">
             {schema?.dbName ?? "Strawdmin"}
-          </Link>
+          </span>
         )}
-      </div>
+      </button>
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3 px-2">
