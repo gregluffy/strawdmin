@@ -98,9 +98,15 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
   )`);
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_audit_fp_time
     ON audit_logs(db_fingerprint, created_at DESC)`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS login_rate_limits (
+    key          TEXT PRIMARY KEY,
+    fails        INTEGER NOT NULL DEFAULT 0,
+    window_start INTEGER NOT NULL,
+    locked_until INTEGER NOT NULL DEFAULT 0
+  )`);
 }
 
-async function db(): Promise<LibsqlClient> {
+export async function db(): Promise<LibsqlClient> {
   const { client, ready } = getDb();
   await ready;
   return client;

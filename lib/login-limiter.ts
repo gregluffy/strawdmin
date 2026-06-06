@@ -1,77 +1,93 @@
+import { db } from "@/lib/internal-db";
+
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILS = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
-interface Entry {
-  fails: number;
-  windowStart: number;
-  lockedUntil: number;
-}
-
-const store = new Map<string, Entry>();
-
-function check(key: string): { blocked: boolean; retryAfterMs: number } {
+async function check(key: string): Promise<{ blocked: boolean; retryAfterMs: number }> {
+  const c = await db();
   const now = Date.now();
-  const entry = store.get(key);
+  const result = await c.execute({
+    sql: "SELECT fails, window_start, locked_until FROM login_rate_limits WHERE key = ?",
+    args: [key],
+  });
+  if (result.rows.length === 0) return { blocked: false, retryAfterMs: 0 };
 
-  if (!entry) return { blocked: false, retryAfterMs: 0 };
+  const row = result.rows[0];
+  const lockedUntil = Number(row.locked_until);
+  const windowStart = Number(row.window_start);
 
-  if (now < entry.lockedUntil) {
-    return { blocked: true, retryAfterMs: entry.lockedUntil - now };
+  if (lockedUntil > now) {
+    return { blocked: true, retryAfterMs: lockedUntil - now };
   }
 
-  // Window expired — stale entry, clean up
-  if (now - entry.windowStart > WINDOW_MS) {
-    store.delete(key);
-    return { blocked: false, retryAfterMs: 0 };
+  if (now - windowStart > WINDOW_MS) {
+    await c.execute({ sql: "DELETE FROM login_rate_limits WHERE key = ?", args: [key] });
   }
 
   return { blocked: false, retryAfterMs: 0 };
 }
 
-function recordFailure(key: string): void {
+async function recordFailure(key: string): Promise<void> {
+  const c = await db();
   const now = Date.now();
-  let entry = store.get(key);
+  const result = await c.execute({
+    sql: "SELECT fails, window_start FROM login_rate_limits WHERE key = ?",
+    args: [key],
+  });
 
-  if (!entry || now - entry.windowStart > WINDOW_MS) {
-    entry = { fails: 0, windowStart: now, lockedUntil: 0 };
+  let fails: number;
+  let windowStart: number;
+
+  if (result.rows.length === 0 || now - Number(result.rows[0].window_start) > WINDOW_MS) {
+    fails = 1;
+    windowStart = now;
+  } else {
+    fails = Number(result.rows[0].fails) + 1;
+    windowStart = Number(result.rows[0].window_start);
   }
 
-  entry.fails += 1;
-  if (entry.fails >= MAX_FAILS) {
-    entry.lockedUntil = now + LOCKOUT_MS;
-  }
-  store.set(key, entry);
+  const lockedUntil = fails >= MAX_FAILS ? now + LOCKOUT_MS : 0;
+
+  await c.execute({
+    sql: "INSERT OR REPLACE INTO login_rate_limits (key, fails, window_start, locked_until) VALUES (?, ?, ?, ?)",
+    args: [key, fails, windowStart, lockedUntil],
+  });
 }
 
-function recordSuccess(key: string): void {
-  store.delete(key);
+async function recordSuccess(key: string): Promise<void> {
+  const c = await db();
+  await c.execute({ sql: "DELETE FROM login_rate_limits WHERE key = ?", args: [key] });
 }
 
-export function checkLoginAllowed(ip: string | null, username: string): { blocked: boolean; retryAfterMs: number } {
+export async function checkLoginAllowed(
+  ip: string | null,
+  username: string
+): Promise<{ blocked: boolean; retryAfterMs: number }> {
   const ipKey = `ip:${ip ?? "unknown"}`;
   const userKey = `user:${username.toLowerCase()}`;
 
-  const byIp = check(ipKey);
+  const byIp = await check(ipKey);
   if (byIp.blocked) return byIp;
 
-  const byUser = check(userKey);
+  const byUser = await check(userKey);
   if (byUser.blocked) return byUser;
 
   return { blocked: false, retryAfterMs: 0 };
 }
 
-export function recordLoginFailure(ip: string | null, username: string): void {
-  recordFailure(`ip:${ip ?? "unknown"}`);
-  recordFailure(`user:${username.toLowerCase()}`);
+export async function recordLoginFailure(ip: string | null, username: string): Promise<void> {
+  await recordFailure(`ip:${ip ?? "unknown"}`);
+  await recordFailure(`user:${username.toLowerCase()}`);
 }
 
-export function recordLoginSuccess(ip: string | null, username: string): void {
-  recordSuccess(`ip:${ip ?? "unknown"}`);
-  recordSuccess(`user:${username.toLowerCase()}`);
+export async function recordLoginSuccess(ip: string | null, username: string): Promise<void> {
+  await recordSuccess(`ip:${ip ?? "unknown"}`);
+  await recordSuccess(`user:${username.toLowerCase()}`);
 }
 
 /** @internal */
-export function _resetForTesting(): void {
-  store.clear();
+export async function _resetForTesting(): Promise<void> {
+  const c = await db();
+  await c.execute("DELETE FROM login_rate_limits");
 }
