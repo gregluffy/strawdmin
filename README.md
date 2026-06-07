@@ -128,9 +128,10 @@ location /services/strawdmin {
 
 ## Security
 
-- **Brute-force protection** — the login endpoint tracks failures per IP and per username in memory. After 10 failed attempts within 15 minutes, that IP or username is locked out for 15 minutes. The counter resets on a successful login. Because the state is in-memory, it resets on process restart; this is acceptable for a single-process deployment but means it is not cluster-safe.
-- **JWT auth** — credentials are exchanged for a signed `auth_token` httpOnly cookie (7-day expiry). There is no session server; `JWT_SECRET` is the only secret that matters — keep it random and at least 32 characters.
-- **Intended deployment** — Strawdmin is designed to run on a private network or behind a reverse proxy with its own access controls. It is not hardened for direct exposure to the public internet.
+- **Brute-force protection** — the login endpoint tracks failures per IP and per username. After 10 failed attempts within 15 minutes the account/IP is locked out for 15 minutes; a successful login resets the counter. The state is in-memory — fine for a single-process deployment, but not suitable for multi-replica setups.
+- **JWT auth** — credentials are exchanged for a signed `auth_token` httpOnly, `sameSite=lax` cookie (7-day expiry). `JWT_SECRET` is the only secret that matters — keep it random and at least 32 characters.
+- **Password policy** — minimum 8 characters, enforced server-side on account creation and password changes. Passwords are stored as bcrypt hashes (cost factor 12).
+- **Recommended deployment** — because Strawdmin has direct read/write access to your database, running it on a private network or behind a VPN is the right architecture regardless of how the app itself is secured. It is not intended to be the only layer of access control between an attacker and your database.
 
 ---
 
