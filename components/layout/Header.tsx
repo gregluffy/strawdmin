@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { basePath } from "@/lib/api-url";
@@ -15,10 +15,20 @@ export function Header() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     fetch(`${basePath}/api/auth/me`).then((r) => r.json()).then(setUser).catch(() => {});
   }, []);
+
+  function toggleMenu() {
+    if (!menuOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    }
+    setMenuOpen((o) => !o);
+  }
 
   async function logout() {
     await fetch(`${basePath}/api/auth/logout`, { method: "POST" });
@@ -31,9 +41,10 @@ export function Header() {
         Dashboard
       </Link>
 
-      <div className="relative">
+      <div>
         <button
-          onClick={() => setMenuOpen(!menuOpen)}
+          ref={buttonRef}
+          onClick={toggleMenu}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-[var(--accent)] transition-colors text-sm"
         >
           <span className="w-7 h-7 rounded-full bg-[var(--primary)] flex items-center justify-center text-white text-xs font-bold">
@@ -50,7 +61,10 @@ export function Header() {
         {menuOpen && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-            <div className="absolute right-0 top-full mt-1 w-48 bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-xl z-20">
+            <div
+              className="fixed w-48 bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-xl z-20"
+              style={{ top: menuPos.top, right: menuPos.right }}
+            >
               <div className="px-3 py-2 border-b border-[var(--border)]">
                 <p className="text-xs text-[var(--muted-foreground)]">Signed in as</p>
                 <p className="text-sm font-medium text-[var(--foreground)]">{user?.username}</p>
