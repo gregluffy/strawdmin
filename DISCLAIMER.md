@@ -32,6 +32,5 @@ decisions made based on the output or behavior of this software.
 database vendors or third-party services it may interact with. You are
 responsible for ensuring your use of this software complies with all applicable
 terms of service, licenses, and laws.
-
 * By using this software, you acknowledge that you have read this disclaimer and
 agree to its terms.
