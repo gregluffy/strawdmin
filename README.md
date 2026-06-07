@@ -1,7 +1,7 @@
 # Strawdmin
 
 A self-hosted database admin UI. Browse tables, edit records, manage users, and create backups — all from your browser.
-If you tired to build an 'New Dashboard' for each app that have an database u should take a look at this application.
+If you tired of building an 'New Dashboard' for each app that have an database and pure database dashboards looks overhealming you should take a look at this application.
 
 Supports **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server**, and **SQLite**.
 
