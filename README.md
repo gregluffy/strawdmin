@@ -158,6 +158,6 @@ volumes:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+AGPL — see [LICENSE](LICENSE).
 
 See [DISCLAIMER.md](DISCLAIMER.md) for warranty, security, and data-safety notices.
