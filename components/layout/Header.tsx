@@ -60,9 +60,9 @@ export function Header() {
 
         {menuOpen && (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+            <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
             <div
-              className="fixed w-48 bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-xl z-20"
+              className="fixed w-48 bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-xl z-40"
               style={{ top: menuPos.top, right: menuPos.right }}
             >
               <div className="px-3 py-2 border-b border-[var(--border)]">
