@@ -158,6 +158,6 @@ volumes:
 
 ## License
 
-AGPL — see [LICENSE](LICENSE).
+AGPLv3 — see [LICENSE](LICENSE).
 
 See [DISCLAIMER.md](DISCLAIMER.md) for warranty, security, and data-safety notices.
