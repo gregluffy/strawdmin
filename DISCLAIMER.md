@@ -1,5 +1,5 @@
 # DISCLAIMER
-* The sofware build with the help of AI.
+* The sofware is build with the help of AI.
 * This software is provided "as is", without warranty of any kind, express or
 implied, including but not limited to the warranties of merchantability,
 fitness for a particular purpose, and noninfringement. In no event shall the
@@ -23,7 +23,7 @@ accept no liability for any breach, data exposure, or unauthorized access. You
 are solely responsible for securing your deployment.
 
 # NO PROFESSIONAL ADVICE
-* This software is not a substitute for professional database administration,
+* This software is not a substitute for large database administration,
 security consulting, or legal advice. The authors are not responsible for any
 decisions made based on the output or behavior of this software.
 
