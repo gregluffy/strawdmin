@@ -4,18 +4,57 @@ A self-hosted database admin UI. Browse tables, edit records, manage users, and 
 
 Supports **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server**, and **SQLite**.
 
+![Table browser](assets/home.png)
+
 ---
 
 ## Features
 
-- **Table browser** — paginated table view with search and column sorting
-- **CRUD** — create, read, update, and delete rows; JSON columns get a Monaco editor
-- **FK display** — configure which field to show for foreign key columns instead of raw IDs
-- **Write-time hashing** — mark columns that your application stores as hashes (e.g. passwords). When editing a record, support staff can enter the plaintext value and Strawdmin hashes it with the configured algorithm (SHA-256 or SHA-512, with optional salt) before saving — producing the same hash your application would store
-- **Backups** — full JSON export of all tables; restore individual backups
+### Table browser & CRUD
+Paginated table view with search and column sorting. Create, edit, duplicate, and delete rows. JSON columns get a Monaco editor.
+
+### FK display
+Configure which field to show for foreign key columns instead of raw IDs — names, emails, slugs, or any other column from the related table.
+
+![FK display](assets/fk-mask.png)
+
+### Column visibility & row expand
+Hide columns you don't need on the table view. Expand any row inline to see all its fields, including hidden ones.
+
+![Column visibility and row expand](assets/hide-cols.png)
+
+### Write-time hashing
+Mark columns that your application stores as hashes (e.g. passwords). Configure the algorithm (SHA-256 or SHA-512) and an optional salt column per field.
+
+![Hashing configuration](assets/hashing-set.png)
+
+When editing a record, a lock icon appears on hashed fields with a "Set hashed value" link.
+
+![Lock icon on hashed field](assets/hashing-use-1.png)
+
+Support staff enter the plaintext value — Strawdmin hashes it with the configured algorithm and salt before saving. The original value is never stored.
+
+![Hash & Apply modal](assets/hashing-use-2.png)
+
+### Access policies
+Control what each user can do per table (view, insert, update, delete) and per column (hidden, read-only).
+
+![Access policies](assets/policies.png)
+
+### Backups
+Full JSON export of all table data with one click. Restore individual backups when needed. The App Settings Backup lets you export and import all configuration (FK display mappings, hashing settings, column preferences, access policies) separately from the data.
+
+![Backups](assets/backups.png)
+
+### Audit log
+Every login, create, update, and delete is recorded. Filter by action type, table, username, and date range.
+
+![Audit log](assets/auditlogs.png)
+
+### Other
 - **User management** — multiple users with `admin` / `user` roles
+- **Dark / light theme**
 - **Sub-path deployment** — run behind a reverse proxy at any base path without rebuilding
-- **Dark / light theme** — via `next-themes`
 
 ---
 
