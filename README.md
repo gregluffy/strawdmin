@@ -114,48 +114,29 @@ BASE_PATH=/strawdmin
 SECURE_COOKIES=false   # required when serving over plain HTTP
 ```
 
-The reverse proxy **must strip the prefix** before forwarding to the app. Three nginx location blocks are required:
+The reverse proxy **must strip the prefix** before forwarding to the app. Two nginx location blocks are required — note the trailing slashes on both `location` and `proxy_pass`:
 
 ```nginx
-worker_processes auto;
-events {}
+# App pages AND public files (logo.svg, favicon.ico, etc.)
+# The /prefix/ → / rewrite strips the path before forwarding.
+location /strawdmin/ {
+    proxy_pass         http://strawdmin:3000/;
+    proxy_set_header   Host               $http_host;
+    proxy_set_header   X-Real-IP          $remote_addr;
+    proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto  $scheme;
+    proxy_read_timeout 120s;
+    absolute_redirect  off;
+}
 
-http {
-    server {
-        listen 80;
-        server_name your.host.or.ip;
-
-        absolute_redirect off;  # keeps port intact on nginx-generated redirects
-
-        # 1. App pages — strips /strawdmin/ prefix
-        location /strawdmin/ {
-            proxy_pass         http://strawdmin:3000/;
-            proxy_set_header   Host               $host;
-            proxy_set_header   X-Real-IP          $remote_addr;
-            proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
-            proxy_set_header   X-Forwarded-Proto  $scheme;
-            proxy_read_timeout 120s;
-        }
-
-        # 2. Next.js built assets (/_next/static/, /_next/image, etc.)
-        location /_next/ {
-            proxy_pass         http://strawdmin:3000/_next/;
-            proxy_set_header   Host               $host;
-        }
-
-        # 3. Public files (logo.svg, favicon.ico, etc.) — no prefix in URLs
-        location / {
-            proxy_pass         http://strawdmin:3000/;
-            proxy_set_header   Host               $host;
-            proxy_set_header   X-Real-IP          $remote_addr;
-            proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
-            proxy_set_header   X-Forwarded-Proto  $scheme;
-        }
-    }
+# Next.js built assets — no prefix in the URLs Next.js emits
+location /_next/ {
+    proxy_pass         http://strawdmin:3000/_next/;
+    proxy_set_header   Host               $http_host;
 }
 ```
 
-> **Note on `absolute_redirect off`:** when nginx auto-redirects to add a trailing slash (e.g. `/strawdmin` → `/strawdmin/`), it uses the `Host` header without the port by default. This directive makes it emit a relative redirect instead, so non-standard ports (e.g. `9005`) are preserved in the browser URL.
+> **Note on `absolute_redirect off`:** when nginx auto-redirects to add a trailing slash (e.g. `/strawdmin` → `/strawdmin/`), it uses the `Host` header without the port by default. This directive makes it emit a relative redirect instead, so non-standard ports (e.g. `9005`) are preserved in the browser URL. Place it inside the `location` block (or at `server` level) rather than globally.
 
 ---
 
