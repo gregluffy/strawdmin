@@ -11,15 +11,24 @@ interface User {
   role: string;
 }
 
+interface UpdateInfo {
+  updateAvailable: boolean;
+  currentVersion?: string;
+  latestVersion?: string;
+  releaseUrl?: string;
+}
+
 export function Header() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     fetch(`${basePath}/api/auth/me`).then((r) => r.json()).then(setUser).catch(() => {});
+    fetch(`${basePath}/api/updates`).then((r) => r.json()).then(setUpdate).catch(() => {});
   }, []);
 
   function toggleMenu() {
@@ -37,9 +46,22 @@ export function Header() {
 
   return (
     <header className="h-14 flex items-center justify-between px-6 border-b border-[var(--border)] bg-[var(--card)] shrink-0">
-      <Link href="/dashboard" className="text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)] transition-colors">
-        Dashboard
-      </Link>
+      <div className="flex items-center gap-4">
+        <Link href="/dashboard" className="text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)] transition-colors">
+          Dashboard
+        </Link>
+        {update?.updateAvailable && (
+          <a
+            href={update.releaseUrl ?? "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 text-xs font-medium hover:bg-yellow-500/25 transition-colors"
+          >
+            <span>↑</span>
+            <span>v{update.latestVersion} available</span>
+          </a>
+        )}
+      </div>
 
       <div>
         <button
