@@ -57,7 +57,7 @@ JWT in an `auth_token` httpOnly cookie (7-day expiry, signed with `JWT_SECRET`).
 First-run flow: `app/page.tsx` checks `isFirstRun()` and redirects to `/setup` if no users exist.
 
 ### BASE_PATH / sub-path deployment
-`BASE_PATH` is a **runtime** environment variable — no image rebuild needed. The root layout (`app/layout.tsx`) injects it as `window.__NEXT_BASE_PATH__` via a `<script>` tag (server component reads `process.env.BASE_PATH`). `lib/api-url.ts` exports `basePath`: on the server it reads `process.env.BASE_PATH`; on the client it reads `window.__NEXT_BASE_PATH__`. All navigation (Link hrefs, router.push, server-side redirect) and fetch calls prefix with this value. The reverse proxy **must strip** the path prefix before forwarding to the app — use trailing slashes on both `location` and `proxy_pass` in nginx.
+`BASE_PATH` is a **build-time** argument (`ARG` in Dockerfile, passed via `docker compose up --build`). It is baked into the Next.js bundle via `basePath` in `next.config.ts` and exposed as `NEXT_PUBLIC_BASE_PATH` for `fetch()` calls. `lib/api-url.ts` exports `basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ""`. Navigation (`Link`, `router.push`, `redirect`) uses plain paths — Next.js prepends the basePath automatically. Only `fetch()` calls need the explicit `${basePath}` prefix. The reverse proxy must **not strip** the prefix — forward the full path unchanged and Next.js handles it internally. One nginx `location /strawdmin { proxy_pass http://app:3000; }` (no trailing slash rewrite) is all that's needed.
 
 ### Route structure
 - `app/(auth)/login` — login page
