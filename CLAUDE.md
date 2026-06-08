@@ -52,7 +52,7 @@ A local SQLite file at `data/app.db` (via `@libsql/client`). Managed entirely in
 Settings rows are keyed by a `db_fingerprint` (`DB_TYPE:DB_CONNECTION_STRING`) and pruned automatically when the fingerprint changes (i.e., when you switch databases).
 
 ### Auth
-JWT in an `auth_token` httpOnly cookie (7-day expiry, signed with `JWT_SECRET`). There is **no Next.js middleware** — route handlers and server components each verify the token themselves via `verifyToken()` from [lib/auth.ts](lib/auth.ts).
+JWT in an `auth_token` httpOnly cookie (7-day expiry, signed with `JWT_SECRET`). [proxy.ts](proxy.ts) is the Next.js Proxy (Next.js 16 renamed Middleware → Proxy) — it handles optimistic redirects for unauthenticated browser requests. Route handlers and server components **also** verify the token themselves via `verifyToken()` from [lib/auth.ts](lib/auth.ts) as the authoritative check. Paths with file extensions (static assets) and `PUBLIC_PREFIXES` bypass the proxy entirely.
 
 First-run flow: `app/page.tsx` checks `isFirstRun()` and redirects to `/setup` if no users exist.
 

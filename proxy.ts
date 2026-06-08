@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
 const PUBLIC_PREFIXES = ["/login", "/setup", "/api/auth/login", "/api/setup"];
+const STATIC_EXT = /\.\w+$/;
 
 function getSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET ?? "default-dev-secret-change-in-production";
@@ -11,7 +12,11 @@ function getSecret(): Uint8Array {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (pathname === "/" || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
+  if (
+    pathname === "/" ||
+    PUBLIC_PREFIXES.some((p) => pathname.startsWith(p)) ||
+    STATIC_EXT.test(pathname)
+  ) {
     return NextResponse.next();
   }
 
