@@ -147,7 +147,7 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
         setError(data.error ?? "Save failed");
         return;
       }
-      router.push(`${basePath}/dashboard/tables/${tableName}`);
+      router.push(`/dashboard/tables/${tableName}`);
       router.refresh();
     } catch (e) {
       setError(String(e));

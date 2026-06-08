@@ -107,36 +107,31 @@ Server=host,1433;Database=dbname;User Id=user;Password=pass;TrustServerCertifica
 
 ## Sub-path deployment
 
-To serve Strawdmin at a path like `/strawdmin`, set `BASE_PATH` in `.env` — **no image rebuild needed**:
+Set `BASE_PATH` in `.env`, then **rebuild the image**:
 
 ```env
 BASE_PATH=/strawdmin
 SECURE_COOKIES=false   # required when serving over plain HTTP
 ```
 
-The reverse proxy **must strip the prefix** before forwarding to the app. Two nginx location blocks are required — note the trailing slashes on both `location` and `proxy_pass`:
+```bash
+docker compose up --build -d
+```
+
+The reverse proxy must forward the full path to the app **without stripping the prefix** — Next.js handles the prefix internally. One nginx location block is all that's needed:
 
 ```nginx
-# App pages AND public files (logo.svg, favicon.ico, etc.)
-# The /prefix/ → / rewrite strips the path before forwarding.
-location /strawdmin/ {
-    proxy_pass         http://strawdmin:3000/;
+location /strawdmin {
+    proxy_pass         http://strawdmin:3000;
     proxy_set_header   Host               $http_host;
     proxy_set_header   X-Real-IP          $remote_addr;
     proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto  $scheme;
     proxy_read_timeout 120s;
-    absolute_redirect  off;
-}
-
-# Next.js built assets — no prefix in the URLs Next.js emits
-location /_next/ {
-    proxy_pass         http://strawdmin:3000/_next/;
-    proxy_set_header   Host               $http_host;
 }
 ```
 
-> **Note on `absolute_redirect off`:** when nginx auto-redirects to add a trailing slash (e.g. `/strawdmin` → `/strawdmin/`), it uses the `Host` header without the port by default. This directive makes it emit a relative redirect instead, so non-standard ports (e.g. `9005`) are preserved in the browser URL. Place it inside the `location` block (or at `server` level) rather than globally.
+> **No prefix stripping.** Unlike some reverse proxy setups, do **not** rewrite the path (e.g. do not use `proxy_pass http://strawdmin:3000/;` with a trailing slash, which would strip `/strawdmin`). Next.js knows its own `basePath` and routes correctly when it receives the full path.
 
 ---
 

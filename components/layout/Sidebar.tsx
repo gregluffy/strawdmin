@@ -94,7 +94,7 @@ export function Sidebar() {
         {schema?.tables?.map((t) => (
           <NavLink
             key={t.name}
-            href={`${basePath}/dashboard/tables/${t.name}`}
+            href={`/dashboard/tables/${t.name}`}
             active={isActive(`/dashboard/tables/${t.name}`)}
             collapsed={!open}
             icon="⊞"
@@ -112,13 +112,13 @@ export function Sidebar() {
       {/* Bottom links (admin only) */}
       {user?.role === "admin" && (
         <div className="border-t border-[var(--border)] py-3 px-2">
-          <NavLink href={`${basePath}/dashboard/users`} active={isActive("/dashboard/users")} collapsed={!open} icon="👥">
+          <NavLink href="/dashboard/users" active={isActive("/dashboard/users")} collapsed={!open} icon="👥">
             Users
           </NavLink>
-          <NavLink href={`${basePath}/dashboard/backups`} active={isActive("/dashboard/backups")} collapsed={!open} icon="💾">
+          <NavLink href="/dashboard/backups" active={isActive("/dashboard/backups")} collapsed={!open} icon="💾">
             Backups
           </NavLink>
-          <NavLink href={`${basePath}/dashboard/audit`} active={isActive("/dashboard/audit")} collapsed={!open} icon="📋">
+          <NavLink href="/dashboard/audit" active={isActive("/dashboard/audit")} collapsed={!open} icon="📋">
             Audit Log
           </NavLink>
         </div>
