@@ -52,12 +52,12 @@ A local SQLite file at `data/app.db` (via `@libsql/client`). Managed entirely in
 Settings rows are keyed by a `db_fingerprint` (`DB_TYPE:DB_CONNECTION_STRING`) and pruned automatically when the fingerprint changes (i.e., when you switch databases).
 
 ### Auth
-JWT in an `auth_token` httpOnly cookie (7-day expiry, signed with `JWT_SECRET`). There is **no Next.js middleware** — route handlers and server components each verify the token themselves via `verifyToken()` from [lib/auth.ts](lib/auth.ts).
+JWT in an `auth_token` httpOnly cookie (7-day expiry, signed with `JWT_SECRET`). [proxy.ts](proxy.ts) is the Next.js Proxy (Next.js 16 renamed Middleware → Proxy) — it handles optimistic redirects for unauthenticated browser requests. Route handlers and server components **also** verify the token themselves via `verifyToken()` from [lib/auth.ts](lib/auth.ts) as the authoritative check. Paths with file extensions (static assets) and `PUBLIC_PREFIXES` bypass the proxy entirely.
 
 First-run flow: `app/page.tsx` checks `isFirstRun()` and redirects to `/setup` if no users exist.
 
 ### BASE_PATH / sub-path deployment
-`BASE_PATH` is passed as a Docker build arg and baked into both `basePath` (Next.js routing) and `NEXT_PUBLIC_BASE_PATH` (client-side fetch prefix) at build time. Changing it requires a rebuild (`docker compose up --build`). All client-side fetch calls prefix with `basePath` from [lib/api-url.ts](lib/api-url.ts).
+`BASE_PATH` is a **build-time** argument (`ARG` in Dockerfile, passed via `docker compose up --build`). It is baked into the Next.js bundle via `basePath` in `next.config.ts` and exposed as `NEXT_PUBLIC_BASE_PATH` for `fetch()` calls. `lib/api-url.ts` exports `basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ""`. Navigation (`Link`, `router.push`, `redirect`) uses plain paths — Next.js prepends the basePath automatically. Only `fetch()` calls need the explicit `${basePath}` prefix. The reverse proxy must **not strip** the prefix — forward the full path unchanged and Next.js handles it internally. One nginx `location /strawdmin { proxy_pass http://app:3000; }` (no trailing slash rewrite) is all that's needed.
 
 ### Route structure
 - `app/(auth)/login` — login page

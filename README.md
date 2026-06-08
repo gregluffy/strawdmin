@@ -1,6 +1,7 @@
 # Strawdmin
 
 A self-hosted database admin UI. Browse tables, edit records, manage users, and create backups — all from your browser.
+If you tired of building an 'New Dashboard' for each app that have an database and pure database dashboards looks overwhelming you should take a look at this application.
 
 Supports **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server**, and **SQLite**.
 
@@ -106,23 +107,31 @@ Server=host,1433;Database=dbname;User Id=user;Password=pass;TrustServerCertifica
 
 ## Sub-path deployment
 
-To serve Strawdmin at a path like `/services/strawdmin`, set `BASE_PATH` in `.env`:
+Set `BASE_PATH` in `.env`, then **rebuild the image**:
 
 ```env
-BASE_PATH=/services/strawdmin
+BASE_PATH=/strawdmin
+SECURE_COOKIES=false   # required when serving over plain HTTP
 ```
 
-Example Nginx location block:
+```bash
+docker compose up --build -d
+```
+
+The reverse proxy must forward the full path to the app **without stripping the prefix** — Next.js handles the prefix internally. One nginx location block is all that's needed:
 
 ```nginx
-location /services/strawdmin {
-    proxy_pass http://strawdmin:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+location /strawdmin {
+    proxy_pass         http://strawdmin:3000;
+    proxy_set_header   Host               $http_host;
+    proxy_set_header   X-Real-IP          $remote_addr;
+    proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto  $scheme;
+    proxy_read_timeout 120s;
 }
 ```
+
+> **No prefix stripping.** Unlike some reverse proxy setups, do **not** rewrite the path (e.g. do not use `proxy_pass http://strawdmin:3000/;` with a trailing slash, which would strip `/strawdmin`). Next.js knows its own `basePath` and routes correctly when it receives the full path.
 
 ---
 

@@ -32,7 +32,7 @@ export default async function RecordPage({
 
   if (!isAdmin && userId !== null) {
     const policy = await getUserTablePolicy(userId, tableName);
-    if (!policy.can_view) redirect(`/dashboard`);
+    if (!policy.can_view) redirect("/dashboard");
     canEdit = policy.can_update;
     columnPolicies = await getUserColumnPolicies(userId, tableName);
   }
