@@ -2,8 +2,6 @@ services:
   app:
     build:
       context: .
-      args:
-        BASE_PATH: ${BASE_PATH:-}
     container_name: strawdmin
     ports:
       - "3000:3000"
@@ -24,13 +22,15 @@ services:
 
 # ── Sub-path deployment ────────────────────────────────────────────────────────
 # To serve behind a reverse proxy at a sub-path, set BASE_PATH in your .env
-# and rebuild the image:
+# (no image rebuild needed):
 #   BASE_PATH=/services/strawdmin   (in .env)
-#   docker compose up --build
+#   docker compose up
 #
-# Nginx location block:
-#   location /services/strawdmin {
-#       proxy_pass http://strawdmin:3000;
+# The reverse proxy MUST strip the prefix before forwarding — note the
+# trailing slashes on both location and proxy_pass:
+#
+#   location /services/strawdmin/ {
+#       proxy_pass http://strawdmin:3000/;
 #       proxy_set_header Host $host;
 #       proxy_set_header X-Real-IP $remote_addr;
 #       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

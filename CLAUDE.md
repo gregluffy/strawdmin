@@ -57,7 +57,7 @@ JWT in an `auth_token` httpOnly cookie (7-day expiry, signed with `JWT_SECRET`).
 First-run flow: `app/page.tsx` checks `isFirstRun()` and redirects to `/setup` if no users exist.
 
 ### BASE_PATH / sub-path deployment
-`BASE_PATH` is passed as a Docker build arg and baked into both `basePath` (Next.js routing) and `NEXT_PUBLIC_BASE_PATH` (client-side fetch prefix) at build time. Changing it requires a rebuild (`docker compose up --build`). All client-side fetch calls prefix with `basePath` from [lib/api-url.ts](lib/api-url.ts).
+`BASE_PATH` is a **runtime** environment variable — no image rebuild needed. The root layout (`app/layout.tsx`) injects it as `window.__NEXT_BASE_PATH__` via a `<script>` tag (server component reads `process.env.BASE_PATH`). `lib/api-url.ts` exports `basePath`: on the server it reads `process.env.BASE_PATH`; on the client it reads `window.__NEXT_BASE_PATH__`. All navigation (Link hrefs, router.push, server-side redirect) and fetch calls prefix with this value. The reverse proxy **must strip** the path prefix before forwarding to the app — use trailing slashes on both `location` and `proxy_pass` in nginx.
 
 ### Route structure
 - `app/(auth)/login` — login page

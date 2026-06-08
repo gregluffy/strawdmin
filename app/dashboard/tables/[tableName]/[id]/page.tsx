@@ -7,6 +7,7 @@ import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
 import { getUserTablePolicy, getUserColumnPolicies } from "@/lib/internal-db";
 import Link from "next/link";
+import { basePath } from "@/lib/api-url";
 
 export default async function RecordPage({
   params,
@@ -32,7 +33,7 @@ export default async function RecordPage({
 
   if (!isAdmin && userId !== null) {
     const policy = await getUserTablePolicy(userId, tableName);
-    if (!policy.can_view) redirect(`/dashboard`);
+    if (!policy.can_view) redirect(`${basePath}/dashboard`);
     canEdit = policy.can_update;
     columnPolicies = await getUserColumnPolicies(userId, tableName);
   }
@@ -68,7 +69,7 @@ export default async function RecordPage({
   return (
     <div>
       <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)] mb-6">
-        <Link href={`/dashboard/tables/${tableName}`} className="hover:text-[var(--foreground)] transition-colors font-mono">
+        <Link href={`${basePath}/dashboard/tables/${tableName}`} className="hover:text-[var(--foreground)] transition-colors font-mono">
           {tableName}
         </Link>
         <span>›</span>

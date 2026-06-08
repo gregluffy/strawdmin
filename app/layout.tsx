@@ -22,8 +22,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const bp = process.env.BASE_PATH ?? "";
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `window.__NEXT_BASE_PATH__=${JSON.stringify(bp)}` }} />
+      </head>
       <body className="h-full antialiased" suppressHydrationWarning>{children}</body>
     </html>
   );
