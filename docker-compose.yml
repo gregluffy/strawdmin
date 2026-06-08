@@ -26,10 +26,25 @@ services:
 #   BASE_PATH=/services/strawdmin   (in .env)
 #   docker compose up
 #
-# The reverse proxy MUST strip the prefix before forwarding — note the
-# trailing slashes on both location and proxy_pass:
+# The reverse proxy MUST strip the prefix before forwarding. Three location
+# blocks are required — note trailing slashes on location + proxy_pass:
 #
+#   # 1. App pages (strips /services/strawdmin/ prefix)
 #   location /services/strawdmin/ {
+#       proxy_pass http://strawdmin:3000/;
+#       proxy_set_header Host $host;
+#       proxy_set_header X-Real-IP $remote_addr;
+#       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#       proxy_set_header X-Forwarded-Proto $scheme;
+#       absolute_redirect off;
+#   }
+#   # 2. Next.js built assets (no prefix in the URLs Next.js emits)
+#   location /_next/ {
+#       proxy_pass http://strawdmin:3000/_next/;
+#       proxy_set_header Host $host;
+#   }
+#   # 3. Public files: logo.svg, favicon.ico, etc. (also no prefix)
+#   location / {
 #       proxy_pass http://strawdmin:3000/;
 #       proxy_set_header Host $host;
 #       proxy_set_header X-Real-IP $remote_addr;

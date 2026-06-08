@@ -107,23 +107,55 @@ Server=host,1433;Database=dbname;User Id=user;Password=pass;TrustServerCertifica
 
 ## Sub-path deployment
 
-To serve Strawdmin at a path like `/services/strawdmin`, set `BASE_PATH` in `.env`:
+To serve Strawdmin at a path like `/strawdmin`, set `BASE_PATH` in `.env` — **no image rebuild needed**:
 
 ```env
-BASE_PATH=/services/strawdmin
+BASE_PATH=/strawdmin
+SECURE_COOKIES=false   # required when serving over plain HTTP
 ```
 
-Example Nginx location block:
+The reverse proxy **must strip the prefix** before forwarding to the app. Three nginx location blocks are required:
 
 ```nginx
-location /services/strawdmin {
-    proxy_pass http://strawdmin:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+worker_processes auto;
+events {}
+
+http {
+    server {
+        listen 80;
+        server_name your.host.or.ip;
+
+        absolute_redirect off;  # keeps port intact on nginx-generated redirects
+
+        # 1. App pages — strips /strawdmin/ prefix
+        location /strawdmin/ {
+            proxy_pass         http://strawdmin:3000/;
+            proxy_set_header   Host               $host;
+            proxy_set_header   X-Real-IP          $remote_addr;
+            proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto  $scheme;
+            proxy_read_timeout 120s;
+        }
+
+        # 2. Next.js built assets (/_next/static/, /_next/image, etc.)
+        location /_next/ {
+            proxy_pass         http://strawdmin:3000/_next/;
+            proxy_set_header   Host               $host;
+        }
+
+        # 3. Public files (logo.svg, favicon.ico, etc.) — no prefix in URLs
+        location / {
+            proxy_pass         http://strawdmin:3000/;
+            proxy_set_header   Host               $host;
+            proxy_set_header   X-Real-IP          $remote_addr;
+            proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto  $scheme;
+        }
+    }
 }
 ```
+
+> **Note on `absolute_redirect off`:** when nginx auto-redirects to add a trailing slash (e.g. `/strawdmin` → `/strawdmin/`), it uses the `Host` header without the port by default. This directive makes it emit a relative redirect instead, so non-standard ports (e.g. `9005`) are preserved in the browser URL.
 
 ---
 
