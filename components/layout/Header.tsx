@@ -32,12 +32,12 @@ export function Header() {
 
   async function logout() {
     await fetch(`${basePath}/api/auth/logout`, { method: "POST" });
-    router.push("/login");
+    router.push(`${basePath}/login`);
   }
 
   return (
     <header className="h-14 flex items-center justify-between px-6 border-b border-[var(--border)] bg-[var(--card)] shrink-0">
-      <Link href="/dashboard" className="text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)] transition-colors">
+      <Link href={`${basePath}/dashboard`} className="text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)] transition-colors">
         Dashboard
       </Link>
 

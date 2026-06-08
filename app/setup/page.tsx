@@ -35,7 +35,7 @@ export default function SetupPage() {
         setError(data.error ?? "Setup failed");
         return;
       }
-      router.push("/dashboard");
+      router.push(`${basePath}/dashboard`);
     } catch {
       setError("Network error");
     } finally {

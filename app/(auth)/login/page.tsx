@@ -26,7 +26,7 @@ export default function LoginPage() {
         setError(data.error ?? "Login failed");
         return;
       }
-      router.push("/dashboard");
+      router.push(`${basePath}/dashboard`);
     } catch {
       setError("Network error");
     } finally {
