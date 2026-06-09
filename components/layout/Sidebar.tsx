@@ -155,9 +155,9 @@ function NavLink({
       <span className="shrink-0 text-base">{icon}</span>
       {!collapsed && (
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-mono text-xs">{children}</span>
+          <span className="block truncate font-mono text-sm">{children}</span>
           {subtitle && (
-            <span className={`block truncate text-[10px] ${active ? "opacity-70" : "opacity-50"}`}>
+            <span className={`block truncate text-xs ${active ? "opacity-70" : "opacity-50"}`}>
               {subtitle}
             </span>
           )}
