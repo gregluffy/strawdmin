@@ -47,8 +47,8 @@ export function Header() {
   return (
     <header className="h-14 flex items-center justify-between px-6 border-b border-[var(--border)] bg-[var(--card)] shrink-0">
       <div className="flex items-center gap-4">
-        <Link href="/dashboard" className="text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)] transition-colors">
-          Dashboard
+        <Link href="/dashboard" className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] text-sm font-medium transition-colors">
+          🏠 Dashboard
         </Link>
         {update?.updateAvailable && (
           <a
