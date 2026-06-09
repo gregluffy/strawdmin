@@ -16,6 +16,8 @@ FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG BASE_PATH=
+ENV BASE_PATH=$BASE_PATH
 
 RUN apk add --no-cache su-exec
 
