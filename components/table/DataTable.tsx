@@ -1096,13 +1096,13 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-[#1a1415]" style={{ boxShadow: '0 2px 0 0 rgba(191,107,113,0.3)' }}>
               <tr>
-                <th className="px-4 py-3.5 text-left align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap w-px">
+                <th className="px-4 py-3.5 text-left align-middle font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-widest whitespace-nowrap w-px">
                   {isAdmin ? "Actions" : "View"}
                 </th>
                 {visibleColsList.map((col) => (
                   <th
                     key={col.name}
-                    className="text-left px-4 py-3.5 align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-[var(--foreground)] transition-colors select-none"
+                    className="text-left px-4 py-3.5 align-middle font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-[var(--foreground)] transition-colors select-none"
                     onClick={() => handleSort(col.name)}
                   >
                     <span className="flex items-center gap-1.5">
