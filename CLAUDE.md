@@ -10,6 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev      # dev server on 0.0.0.0:3000
 npm run build    # production build (standalone output)
 npm run start    # serve the production build
+npm test         # run tests once (vitest)
+npm run test:watch     # vitest in watch mode
+npm run test:coverage  # vitest with coverage
 ```
 
 Docker:
@@ -17,7 +20,7 @@ Docker:
 docker compose up --build   # build and run with env from .env
 ```
 
-There are no tests and no linter configured.
+Tests live in `tests/` (unit, db, stateful, api). No linter configured.
 
 ## Environment
 
@@ -57,7 +60,7 @@ JWT in an `auth_token` httpOnly cookie (7-day expiry, signed with `JWT_SECRET`).
 First-run flow: `app/page.tsx` checks `isFirstRun()` and redirects to `/setup` if no users exist.
 
 ### BASE_PATH / sub-path deployment
-`BASE_PATH` is a **build-time** argument (`ARG` in Dockerfile, passed via `docker compose up --build`). It is baked into the Next.js bundle via `basePath` in `next.config.ts` and exposed as `NEXT_PUBLIC_BASE_PATH` for `fetch()` calls. `lib/api-url.ts` exports `basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ""`. Navigation (`Link`, `router.push`, `redirect`) uses plain paths — Next.js prepends the basePath automatically. Only `fetch()` calls need the explicit `${basePath}` prefix. The reverse proxy must **not strip** the prefix — forward the full path unchanged and Next.js handles it internally. One nginx `location /strawdmin { proxy_pass http://app:3000; }` (no trailing slash rewrite) is all that's needed.
+`BASE_PATH` is passed as both a build-time `ARG` and a runtime `ENV` in the Dockerfile — the runner stage re-declares it so `next.config.ts` reads the correct value at server startup (not just at build time). It is baked into the Next.js bundle via `basePath` in `next.config.ts` and exposed as `NEXT_PUBLIC_BASE_PATH` for `fetch()` calls. `lib/api-url.ts` exports `basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ""`. Navigation (`Link`, `router.push`, `redirect`) uses plain paths — Next.js prepends the basePath automatically. Only `fetch()` calls need the explicit `${basePath}` prefix. The reverse proxy must **not strip** the prefix — forward the full path unchanged and Next.js handles it internally. One nginx `location /strawdmin { proxy_pass http://app:3000; }` (no trailing slash rewrite) is all that's needed.
 
 ### Route structure
 - `app/(auth)/login` — login page
