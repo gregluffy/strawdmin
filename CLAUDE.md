@@ -10,6 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev      # dev server on 0.0.0.0:3000
 npm run build    # production build (standalone output)
 npm run start    # serve the production build
+npm test         # run tests once (vitest)
+npm run test:watch     # vitest in watch mode
+npm run test:coverage  # vitest with coverage
 ```
 
 Docker:
@@ -17,7 +20,7 @@ Docker:
 docker compose up --build   # build and run with env from .env
 ```
 
-There are no tests and no linter configured.
+Tests live in `tests/` (unit, db, stateful, api). No linter configured.
 
 ## Environment
 
