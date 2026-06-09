@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
+const BASE_PATH = process.env.BASE_PATH ?? "";
 const PUBLIC_PREFIXES = ["/login", "/setup", "/api/auth/login", "/api/setup"];
 const STATIC_EXT = /\.\w+$/;
 
 function getSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET ?? "default-dev-secret-change-in-production";
   return new TextEncoder().encode(secret);
+}
+
+function redirectTo(req: NextRequest, path: string): NextResponse {
+  const url = new URL(`${BASE_PATH}${path}`, req.url);
+  return NextResponse.redirect(url);
 }
 
 export async function proxy(req: NextRequest) {
@@ -23,9 +29,7 @@ export async function proxy(req: NextRequest) {
   const token = req.cookies.get("auth_token")?.value;
 
   if (!token) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return redirectTo(req, "/login");
   }
 
   try {
@@ -42,16 +46,12 @@ export async function proxy(req: NextRequest) {
           headers: { "Content-Type": "application/json" },
         });
       }
-      const url = req.nextUrl.clone();
-      url.pathname = "/dashboard";
-      return NextResponse.redirect(url);
+      return redirectTo(req, "/dashboard");
     }
 
     return NextResponse.next();
   } catch {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    const response = NextResponse.redirect(url);
+    const response = redirectTo(req, "/login");
     response.cookies.delete("auth_token");
     return response;
   }
