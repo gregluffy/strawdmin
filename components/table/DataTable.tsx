@@ -1096,13 +1096,13 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-[#1a1415]" style={{ boxShadow: '0 2px 0 0 rgba(191,107,113,0.3)' }}>
               <tr>
-                <th className="px-4 py-3.5 text-left align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap w-px">
+                <th className="px-4 py-3.5 text-left align-middle font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-widest whitespace-nowrap w-px">
                   {isAdmin ? "Actions" : "View"}
                 </th>
                 {visibleColsList.map((col) => (
                   <th
                     key={col.name}
-                    className="text-left px-4 py-3.5 align-middle font-semibold text-[var(--muted-foreground)] text-[11px] uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-[var(--foreground)] transition-colors select-none"
+                    className="text-left px-4 py-3.5 align-middle font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-widest whitespace-nowrap cursor-pointer hover:text-[var(--foreground)] transition-colors select-none"
                     onClick={() => handleSort(col.name)}
                   >
                     <span className="flex items-center gap-1.5">
@@ -1296,7 +1296,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                         <tr className="border-t-0">
                           <td colSpan={visibleColsList.length + 1} className="px-4 pt-0 pb-3">
                             <div className="rounded-lg border border-[var(--primary)]/20 bg-[var(--primary)]/4 p-4">
-                              <p className="text-[9px] font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-3 flex items-center gap-2">
+                              <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-3 flex items-center gap-2">
                                 <span>All fields</span>
                                 <span className="text-[var(--border)]">·</span>
                                 <span>{schema.columns.length} columns</span>
@@ -1320,14 +1320,15 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                                           : "bg-[var(--background)] border-[var(--border)]"
                                       }`}
                                     >
-                                      <div className="flex items-center gap-1 mb-1.5">
-                                        <span className="text-[10px] font-mono text-[var(--muted-foreground)] truncate">{col.name}</span>
+                                      <div className="flex items-center gap-1 mb-1">
+                                        <span className="text-[10px] font-semibold font-mono uppercase tracking-wider text-[var(--muted-foreground)] truncate">{col.name}</span>
                                         {col.isPrimary && <span className="text-[8px] text-[var(--primary)] font-bold shrink-0">PK</span>}
                                         {col.fk && <span className="text-[8px] text-amber-400 font-bold shrink-0">FK</span>}
                                         {col.isJson && <span className="text-[8px] text-emerald-400 font-bold shrink-0">JSON</span>}
                                         {encSettings[col.name] && <span className="text-[8px] text-violet-400 shrink-0">🔒</span>}
                                         {isHidden && <span className="text-[8px] text-[var(--primary)]/60 shrink-0 ml-auto">hidden</span>}
                                       </div>
+                                      <div className="h-px bg-[var(--border)] mb-1.5" />
                                       {renderExpandedValue(col, val)}
                                     </div>
                                   );
