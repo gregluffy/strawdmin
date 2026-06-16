@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     }
 
     const users = nonAdminUsers.map((u) => {
-      const tp = tpMap.get(u.id) ?? { can_view: true, can_insert: true, can_update: true, can_delete: true };
+      const tp = tpMap.get(u.id) ?? { can_view: true, can_insert: false, can_update: false, can_delete: false };
       return {
         id: u.id,
         username: u.username,
