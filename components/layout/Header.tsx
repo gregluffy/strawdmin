@@ -100,10 +100,9 @@ export function Header() {
     setDbMenuOpen(false);
     await fetch(`${basePath}/api/db-connections/${id}/activate`, { method: "POST" });
     setActiveId(id);
-    // Clear schema cache and reload
     await fetch(`${basePath}/api/schema`, { method: "DELETE" });
-    router.refresh();
     fetchConnections();
+    router.push("/dashboard");
   }
 
   async function logout() {
