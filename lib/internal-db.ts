@@ -406,7 +406,7 @@ export async function upsertViewSettings(
 
 // ── Table & column policies ─────────────────────────────────────────────────
 
-const DEFAULT_TABLE_POLICY = { can_view: true, can_insert: true, can_update: true, can_delete: true };
+const DEFAULT_TABLE_POLICY = { can_view: true, can_insert: false, can_update: false, can_delete: false };
 
 export async function getUserTablePolicy(
   userId: number,

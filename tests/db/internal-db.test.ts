@@ -217,13 +217,13 @@ describe("deleteDbConnection", () => {
 // ── policies ────────────────────────────────────────────────────────────────
 
 describe("getUserTablePolicy — defaults", () => {
-  it("returns all-true defaults when no policy stored", async () => {
+  it("returns view-only defaults when no policy stored", async () => {
     const policy = await getUserTablePolicy(42, "orders", CONN_ID);
     expect(policy).toEqual({
       can_view: true,
-      can_insert: true,
-      can_update: true,
-      can_delete: true,
+      can_insert: false,
+      can_update: false,
+      can_delete: false,
     });
   });
 });
