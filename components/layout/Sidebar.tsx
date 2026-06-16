@@ -35,6 +35,10 @@ export function Sidebar() {
   useEffect(() => {
     loadSchema();
     fetch(`${basePath}/api/auth/me`).then((r) => r.json()).then(setUser).catch(() => {});
+
+    const onDbSwitched = () => { setSchema(null); loadSchema(); };
+    window.addEventListener("db-switched", onDbSwitched);
+    return () => window.removeEventListener("db-switched", onDbSwitched);
   }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");

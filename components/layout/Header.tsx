@@ -102,6 +102,7 @@ export function Header() {
     setActiveId(id);
     await fetch(`${basePath}/api/schema`, { method: "DELETE" });
     fetchConnections();
+    window.dispatchEvent(new CustomEvent("db-switched"));
     router.push("/dashboard");
   }
 
