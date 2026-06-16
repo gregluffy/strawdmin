@@ -7,6 +7,7 @@ import {
   upsertTablePolicy,
   upsertColumnPolicy,
 } from "@/lib/internal-db";
+import { getActiveConnection } from "@/lib/active-connection";
 
 export async function GET(req: NextRequest) {
   const user = await getRequestUser(req);
@@ -15,19 +16,20 @@ export async function GET(req: NextRequest) {
   const table = req.nextUrl.searchParams.get("table");
   if (!table) return NextResponse.json({ error: "Missing table" }, { status: 400 });
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
     const [allUsers, tablePolicyRows, columnPolicyRows] = await Promise.all([
       getUsers(),
-      getTablePoliciesForTable(table),
-      getColumnPoliciesForTable(table),
+      getTablePoliciesForTable(table, conn.id),
+      getColumnPoliciesForTable(table, conn.id),
     ]);
 
     const nonAdminUsers = allUsers.filter((u) => u.role !== "admin");
 
-    // Build a map: userId → explicit table policy row
     const tpMap = new Map(tablePolicyRows.map((r) => [r.user_id, r]));
 
-    // Build a map: userId → column → policy
     const cpMap = new Map<number, Record<string, { hidden: boolean; read_only: boolean }>>();
     for (const r of columnPolicyRows) {
       if (!cpMap.has(r.user_id)) cpMap.set(r.user_id, {});
@@ -59,6 +61,9 @@ export async function PUT(req: NextRequest) {
   const user = await getRequestUser(req);
   if (!user || user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
     const body = await req.json();
 
@@ -70,14 +75,14 @@ export async function PUT(req: NextRequest) {
         can_insert: Boolean(can_insert),
         can_update: Boolean(can_update),
         can_delete: Boolean(can_delete),
-      });
+      }, conn.id);
     } else if (body.type === "column") {
       const { userId, table, column, hidden, read_only } = body;
       if (!userId || !table || !column) return NextResponse.json({ error: "Missing userId, table, or column" }, { status: 400 });
       await upsertColumnPolicy(Number(userId), table, column, {
         hidden: Boolean(hidden),
         read_only: Boolean(read_only),
-      });
+      }, conn.id);
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }

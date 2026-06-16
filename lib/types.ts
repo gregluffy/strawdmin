@@ -1,5 +1,13 @@
 export type DbType = "postgres" | "mysql" | "mariadb" | "mssql" | "sqlite";
 
+export interface DbConnection {
+  id: number;
+  name: string;
+  db_type: DbType;
+  connection_string: string;
+  created_at: string;
+}
+
 export interface Column {
   name: string;
   type: string;

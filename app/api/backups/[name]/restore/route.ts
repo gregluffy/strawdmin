@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { getDriver } from "@/lib/drivers";
 import { introspect } from "@/lib/introspect";
+import { getActiveConnection } from "@/lib/active-connection";
 import type { BackupFile, Column, SchemaTable } from "@/lib/types";
 import { deserializeBinary } from "@/lib/sql";
 
@@ -60,10 +61,14 @@ function normalizeValue(v: unknown, isJson: boolean, dbType: string): unknown {
 }
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params;
+
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
     if (!name.endsWith(".json") || name.includes("/") || name.includes("..")) {
       return NextResponse.json({ error: "Invalid backup name" }, { status: 400 });
@@ -75,13 +80,12 @@ export async function POST(
     }
 
     const backup: BackupFile = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-    const schema = await introspect();
-    const driver = getDriver();
+    const schema = await introspect(conn);
+    const driver = getDriver(conn);
 
     const sortedTables = topologicalSort(schema.tables);
     const backupTables = sortedTables.filter((t) => backup.tables[t.name]);
 
-    // Disable FK constraints for the duration of the restore
     if (driver.dbType === "mssql") {
       for (const t of backupTables) {
         await driver.query(`ALTER TABLE ${driver.quote(t.name)} NOCHECK CONSTRAINT ALL`);
@@ -133,7 +137,6 @@ export async function POST(
         }
       }
     } finally {
-      // Always re-enable FK constraints
       if (driver.dbType === "mssql") {
         for (const t of backupTables) {
           await driver.query(`ALTER TABLE ${driver.quote(t.name)} WITH NOCHECK CHECK CONSTRAINT ALL`);

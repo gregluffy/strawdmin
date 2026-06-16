@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { introspect } from "@/lib/introspect";
 import { getDriver } from "@/lib/drivers";
 import { serializeRow } from "@/lib/sql";
+import { getActiveConnection } from "@/lib/active-connection";
 import type { BackupMeta } from "@/lib/types";
 
 function getBackupDir(): string {
@@ -30,20 +31,21 @@ export async function GET() {
 
 const BACKUP_ROW_LIMIT = 100_000;
 
-export async function POST() {
-  try {
-    const schema = await introspect();
-    const driver = getDriver();
+export async function POST(req: NextRequest) {
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
 
-    // Pre-flight: count total rows across all tables to avoid loading a huge
-    // database into memory. COUNT(*) is valid in all supported dialects.
+  try {
+    const schema = await introspect(conn);
+    const driver = getDriver(conn);
+
     let totalRows = 0;
     for (const table of schema.tables) {
       try {
         const result = await driver.query(`SELECT COUNT(*) as c FROM ${driver.quote(table.name)}`);
         totalRows += Number(result[0]?.c ?? 0);
       } catch {
-        // inaccessible table — will also be skipped during export
+        // inaccessible table
       }
     }
     if (totalRows > BACKUP_ROW_LIMIT) {
