@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getViewSettings, upsertViewSettings } from "@/lib/internal-db";
+import { getActiveConnection } from "@/lib/active-connection";
 
 export async function GET(req: NextRequest) {
   const table = req.nextUrl.searchParams.get("table");
   if (!table) return NextResponse.json({ error: "Missing table" }, { status: 400 });
+
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const settings = await getViewSettings(table);
+    const settings = await getViewSettings(table, conn.id);
     return NextResponse.json(settings ?? null);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -13,6 +18,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
     const { table, visible_cols, sort_col, sort_dir } = await req.json();
     if (
@@ -24,7 +32,7 @@ export async function PUT(req: NextRequest) {
     ) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
-    await upsertViewSettings(table, visible_cols as string[], sort_col as string, sort_dir as "asc" | "desc");
+    await upsertViewSettings(table, visible_cols as string[], sort_col as string, sort_dir as "asc" | "desc", conn.id);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

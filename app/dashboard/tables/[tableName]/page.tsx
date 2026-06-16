@@ -4,6 +4,7 @@ import { DataTable } from "@/components/table/DataTable";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
 import { getUserTablePolicy, getUserColumnPolicies } from "@/lib/internal-db";
+import { getServerActiveConnection } from "@/lib/server-connection";
 import type { TablePolicy } from "@/lib/types";
 
 export default async function TablePage({
@@ -12,7 +13,10 @@ export default async function TablePage({
   params: Promise<{ tableName: string }>;
 }) {
   const { tableName } = await params;
-  const schema = await getTable(tableName);
+  const conn = await getServerActiveConnection();
+  if (!conn) notFound();
+
+  const schema = await getTable(tableName, conn);
   if (!schema) notFound();
 
   const cookieStore = await cookies();
@@ -29,9 +33,9 @@ export default async function TablePage({
   let columnPolicies: Record<string, { hidden: boolean; read_only: boolean }> = {};
 
   if (!isAdmin && userId !== null) {
-    tablePolicy = await getUserTablePolicy(userId, tableName);
+    tablePolicy = await getUserTablePolicy(userId, tableName, conn.id);
     if (!tablePolicy.can_view) notFound();
-    columnPolicies = await getUserColumnPolicies(userId, tableName);
+    columnPolicies = await getUserColumnPolicies(userId, tableName, conn.id);
   }
 
   return <DataTable tableName={tableName} schema={schema} isAdmin={isAdmin} tablePolicy={tablePolicy} columnPolicies={columnPolicies} />;

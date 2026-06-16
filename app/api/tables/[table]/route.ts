@@ -4,6 +4,7 @@ import { getTable } from "@/lib/introspect";
 import { serializeRow, deserializeBinary } from "@/lib/sql";
 import { getRequestUser } from "@/lib/request-auth";
 import { getUserTablePolicy, getUserColumnPolicies, logAudit } from "@/lib/internal-db";
+import { getActiveConnection } from "@/lib/active-connection";
 
 export async function GET(
   req: NextRequest,
@@ -13,12 +14,15 @@ export async function GET(
   const user = await getRequestUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const schema = await getTable(table);
+    const schema = await getTable(table, conn);
     if (!schema) return NextResponse.json({ error: "Table not found" }, { status: 404 });
 
     if (user.role !== "admin") {
-      const policy = await getUserTablePolicy(user.sub, table);
+      const policy = await getUserTablePolicy(user.sub, table, conn.id);
       if (!policy.can_view) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -33,7 +37,7 @@ export async function GET(
     const validColumns = new Set(schema.columns.map((c) => c.name));
     const sortCol = validColumns.has(sort) ? sort : schema.primaryKey;
 
-    const driver = getDriver();
+    const driver = getDriver(conn);
 
     let countSql = `SELECT COUNT(*) as total FROM ${driver.quote(table)}`;
     let rowsSql = `SELECT * FROM ${driver.quote(table)}`;
@@ -68,10 +72,9 @@ export async function GET(
       driver.query(rowsSql, queryParams),
     ]);
 
-    // Filter hidden columns for non-admin users
     let hiddenCols = new Set<string>();
     if (user.role !== "admin") {
-      const colPolicies = await getUserColumnPolicies(user.sub, table);
+      const colPolicies = await getUserColumnPolicies(user.sub, table, conn.id);
       hiddenCols = new Set(Object.entries(colPolicies).filter(([, p]) => p.hidden).map(([col]) => col));
     }
 
@@ -97,17 +100,20 @@ export async function POST(
   const user = await getRequestUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const schema = await getTable(table);
+    const schema = await getTable(table, conn);
     if (!schema) return NextResponse.json({ error: "Table not found" }, { status: 404 });
 
     if (user.role !== "admin") {
-      const policy = await getUserTablePolicy(user.sub, table);
+      const policy = await getUserTablePolicy(user.sub, table, conn.id);
       if (!policy.can_insert) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const body = await req.json();
-    const driver = getDriver();
+    const driver = getDriver(conn);
 
     const missing = schema.columns.filter(
       (c) =>
@@ -139,7 +145,7 @@ export async function POST(
 
     const result = await driver.query(sql, values);
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? null;
-    logAudit({ userId: user.sub, username: user.username, action: "INSERT", tableName: table, changes: { after: body }, ip }).catch(() => {});
+    logAudit({ userId: user.sub, username: user.username, action: "INSERT", tableName: table, changes: { after: body }, ip }, conn.id).catch(() => {});
     return NextResponse.json({ ok: true, row: result[0] ?? null }, { status: 201 });
   } catch (err) {
     console.error(err);

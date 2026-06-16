@@ -1,25 +1,35 @@
 import Link from "next/link";
 import { introspect } from "@/lib/introspect";
+import { getServerActiveConnection } from "@/lib/server-connection";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const conn = await getServerActiveConnection();
   let schema;
   let error: string | null = null;
 
-  try {
-    schema = await introspect();
-  } catch (e) {
-    error = String(e);
+  if (!conn) {
+    error = "No database connection configured. Use the database switcher in the header to add a connection.";
+  } else {
+    try {
+      schema = await introspect(conn);
+    } catch (e) {
+      error = String(e);
+    }
   }
 
-  const dbType = process.env.DB_TYPE ?? "not configured";
+  const dbType = conn?.db_type ?? "not configured";
 
   return (
     <div className="max-w-4xl">
       <h1 className="text-2xl font-bold text-[var(--foreground)] mb-2">Dashboard</h1>
       <p className="text-[var(--muted-foreground)] mb-8">
-        Connected to <span className="font-mono text-[var(--foreground)]">{dbType}</span> database
+        {conn ? (
+          <>Connected to <span className="font-mono text-[var(--foreground)]">{conn.name}</span> ({dbType})</>
+        ) : (
+          "No database selected"
+        )}
       </p>
 
       {error ? (

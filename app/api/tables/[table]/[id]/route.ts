@@ -4,6 +4,7 @@ import { getTable } from "@/lib/introspect";
 import { serializeRow, deserializeBinary } from "@/lib/sql";
 import { getRequestUser } from "@/lib/request-auth";
 import { getUserTablePolicy, getUserColumnPolicies, logAudit } from "@/lib/internal-db";
+import { getActiveConnection } from "@/lib/active-connection";
 
 type RouteParams = { params: Promise<{ table: string; id: string }> };
 
@@ -12,19 +13,22 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const user = await getRequestUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const schema = await getTable(table);
+    const schema = await getTable(table, conn);
     if (!schema) return NextResponse.json({ error: "Table not found" }, { status: 404 });
 
     let hiddenCols = new Set<string>();
     if (user.role !== "admin") {
-      const policy = await getUserTablePolicy(user.sub, table);
+      const policy = await getUserTablePolicy(user.sub, table, conn.id);
       if (!policy.can_view) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const colPolicies = await getUserColumnPolicies(user.sub, table);
+      const colPolicies = await getUserColumnPolicies(user.sub, table, conn.id);
       hiddenCols = new Set(Object.entries(colPolicies).filter(([, p]) => p.hidden).map(([col]) => col));
     }
 
-    const driver = getDriver();
+    const driver = getDriver(conn);
     const rows = await driver.query(
       `SELECT * FROM ${driver.quote(table)} WHERE ${driver.quote(schema.primaryKey)} = ${driver.placeholder(0)}`,
       [id]
@@ -43,20 +47,23 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   const user = await getRequestUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const schema = await getTable(table);
+    const schema = await getTable(table, conn);
     if (!schema) return NextResponse.json({ error: "Table not found" }, { status: 404 });
 
     let readOnlyCols = new Set<string>();
     if (user.role !== "admin") {
-      const policy = await getUserTablePolicy(user.sub, table);
+      const policy = await getUserTablePolicy(user.sub, table, conn.id);
       if (!policy.can_update) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const colPolicies = await getUserColumnPolicies(user.sub, table);
+      const colPolicies = await getUserColumnPolicies(user.sub, table, conn.id);
       readOnlyCols = new Set(Object.entries(colPolicies).filter(([, p]) => p.read_only).map(([col]) => col));
     }
 
     const body = await req.json();
-    const driver = getDriver();
+    const driver = getDriver(conn);
 
     const updateCols = schema.columns.filter(
       (c) => !c.isPrimary && body[c.name] !== undefined && !readOnlyCols.has(c.name)
@@ -83,7 +90,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
     await driver.query(sql, values);
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? null;
-    logAudit({ userId: user.sub, username: user.username, action: "UPDATE", tableName: table, recordId: id, changes: { before: beforeRow, after: body }, ip }).catch(() => {});
+    logAudit({ userId: user.sub, username: user.username, action: "UPDATE", tableName: table, recordId: id, changes: { before: beforeRow, after: body }, ip }, conn.id).catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -95,16 +102,19 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   const user = await getRequestUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const schema = await getTable(table);
+    const schema = await getTable(table, conn);
     if (!schema) return NextResponse.json({ error: "Table not found" }, { status: 404 });
 
     if (user.role !== "admin") {
-      const policy = await getUserTablePolicy(user.sub, table);
+      const policy = await getUserTablePolicy(user.sub, table, conn.id);
       if (!policy.can_delete) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const driver = getDriver();
+    const driver = getDriver(conn);
     const beforeRows = await driver.query(
       `SELECT * FROM ${driver.quote(table)} WHERE ${driver.quote(schema.primaryKey)} = ${driver.placeholder(0)}`,
       [id]
@@ -116,7 +126,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       [id]
     );
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? null;
-    logAudit({ userId: user.sub, username: user.username, action: "DELETE", tableName: table, recordId: id, changes: { before: beforeRow }, ip }).catch(() => {});
+    logAudit({ userId: user.sub, username: user.username, action: "DELETE", tableName: table, recordId: id, changes: { before: beforeRow }, ip }, conn.id).catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

@@ -1,4 +1,4 @@
-import type { DbType } from "../types";
+import type { DbType, DbConnection } from "../types";
 
 export interface DbDriver {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -8,9 +8,9 @@ export interface DbDriver {
   dbType: string;
 }
 
-export function getDbName(): string {
-  const type = (process.env.DB_TYPE ?? "sqlite").trim().toLowerCase() as DbType;
-  const connStr = process.env.DB_CONNECTION_STRING ?? "";
+export function getDbName(conn: DbConnection): string {
+  const type = conn.db_type as DbType;
+  const connStr = conn.connection_string;
   try {
     if (type === "postgres" || type === "mysql" || type === "mariadb") {
       return new URL(connStr).pathname.replace(/^\//, "") || connStr;
@@ -28,33 +28,54 @@ export function getDbName(): string {
   return connStr;
 }
 
-let cachedDriver: DbDriver | null = null;
+const driverCache = new Map<number, DbDriver>();
 
-export function getDriver(): DbDriver {
-  if (cachedDriver) return cachedDriver;
+export function getDriver(conn: DbConnection): DbDriver {
+  if (driverCache.has(conn.id)) return driverCache.get(conn.id)!;
 
-  const type = (process.env.DB_TYPE ?? "sqlite").trim().toLowerCase() as DbType;
-  const connStr = process.env.DB_CONNECTION_STRING ?? "";
+  const type = conn.db_type as DbType;
+  const connStr = conn.connection_string;
+  let driver: DbDriver;
 
   switch (type) {
     case "postgres":
-      cachedDriver = createPostgresDriver(connStr);
+      driver = createPostgresDriver(connStr);
       break;
     case "mysql":
     case "mariadb":
-      cachedDriver = createMysqlDriver(connStr);
+      driver = createMysqlDriver(connStr);
       break;
     case "mssql":
-      cachedDriver = createMssqlDriver(connStr);
+      driver = createMssqlDriver(connStr);
       break;
     case "sqlite":
-      cachedDriver = createSqliteDriver(connStr);
+      driver = createSqliteDriver(connStr);
       break;
     default:
-      throw new Error(`Unsupported DB_TYPE: ${type}`);
+      throw new Error(`Unsupported db_type: ${type}`);
   }
 
-  return cachedDriver;
+  driverCache.set(conn.id, driver);
+  return driver;
+}
+
+export async function closeDriver(connId: number): Promise<void> {
+  const driver = driverCache.get(connId);
+  if (driver) {
+    try { await driver.close(); } catch { /* ignore */ }
+    driverCache.delete(connId);
+  }
+}
+
+export function createTempDriver(dbType: string, connStr: string): DbDriver {
+  switch (dbType) {
+    case "postgres": return createPostgresDriver(connStr);
+    case "mysql":
+    case "mariadb": return createMysqlDriver(connStr);
+    case "mssql": return createMssqlDriver(connStr);
+    case "sqlite": return createSqliteDriver(connStr);
+    default: throw new Error(`Unsupported db_type: ${dbType}`);
+  }
 }
 
 function createPostgresDriver(connStr: string): DbDriver {
@@ -81,7 +102,6 @@ function createMysqlDriver(connStr: string): DbDriver {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mysql = require("mysql2/promise");
   const hasSSL = /ssl=true/i.test(connStr) || /sslmode=(?!disable)/i.test(connStr);
-  // mysql2 only accepts mysql:// scheme — normalize mariadb:// if present
   const uri = connStr.replace(/^mariadb:\/\//i, "mysql://");
   const pool = mysql.createPool({ uri, ...(hasSSL && { ssl: { rejectUnauthorized: false } }) });
   return {

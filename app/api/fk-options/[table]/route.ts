@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDriver } from "@/lib/drivers";
 import { getTable } from "@/lib/introspect";
+import { getActiveConnection } from "@/lib/active-connection";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ table: string }> }
 ) {
   const { table } = await params;
+
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const schema = await getTable(table);
+    const schema = await getTable(table, conn);
     if (!schema) return NextResponse.json({ error: "Table not found" }, { status: 404 });
 
-    const driver = getDriver();
+    const driver = getDriver(conn);
     const [pkCol, labelCol] = schema.columns;
     const selectCols = labelCol
       ? `${driver.quote(pkCol.name)}, ${driver.quote(labelCol.name)}`
