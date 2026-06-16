@@ -14,10 +14,14 @@ function getBackupDir(): string {
   return dir;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
     const dir = getBackupDir();
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+    const prefix = `backup_conn${conn.id}_`;
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json") && f.startsWith(prefix));
     const backups: BackupMeta[] = files.map((f) => {
       const stat = fs.statSync(path.join(dir, f));
       return { name: f, size: stat.size, createdAt: stat.birthtime.toISOString() };
@@ -72,7 +76,7 @@ export async function POST(req: NextRequest) {
     }
 
     const backup = { created_at: new Date().toISOString(), db_type: driver.dbType, tables };
-    const name = `backup_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    const name = `backup_conn${conn.id}_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     const dir = getBackupDir();
     fs.writeFileSync(path.join(dir, name), JSON.stringify(backup, null, 2));
 
