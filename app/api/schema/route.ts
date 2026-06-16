@@ -2,20 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { introspect, clearSchemaCache } from "@/lib/introspect";
 import { getRequestUser } from "@/lib/request-auth";
 import { getUserTablePolicy } from "@/lib/internal-db";
+import { getActiveConnection } from "@/lib/active-connection";
 
 export async function GET(req: NextRequest) {
   const user = await getRequestUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const schema = await introspect();
+    const schema = await introspect(conn);
 
     if (user.role === "admin") return NextResponse.json(schema);
 
-    // Filter out tables the user cannot view
     const visibleTables = await Promise.all(
       schema.tables.map(async (t) => {
-        const policy = await getUserTablePolicy(user.sub, t.name);
+        const policy = await getUserTablePolicy(user.sub, t.name, conn.id);
         return policy.can_view ? t : null;
       })
     );
@@ -30,7 +33,9 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function DELETE() {
-  clearSchemaCache();
+export async function DELETE(req: NextRequest) {
+  const conn = await getActiveConnection(req);
+  if (conn) clearSchemaCache(conn.id);
+  else clearSchemaCache();
   return NextResponse.json({ ok: true });
 }

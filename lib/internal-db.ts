@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import type { User, FkDisplaySetting, EncryptionSetting, AuditLog } from "./types";
+import type { User, FkDisplaySetting, EncryptionSetting, AuditLog, DbConnection, DbType } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { createClient } = require("@libsql/client");
@@ -24,8 +24,6 @@ function getDb(): { client: LibsqlClient; ready: Promise<void> } {
     } else {
       const dataDir = getDataDir();
       fs.mkdirSync(dataDir, { recursive: true });
-      // Normalize to forward slashes — @libsql/client requires a valid file: URL
-      // and Windows path.join() returns backslashes which break the URL parser.
       const dbPath = path.join(dataDir, "app.db").replace(/\\/g, "/");
       client = createClient({ url: `file:${dbPath}` });
     }
@@ -40,6 +38,13 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL
+  )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS db_connections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    db_type TEXT NOT NULL,
+    connection_string TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`);
   await db.execute(`CREATE TABLE IF NOT EXISTS fk_display_settings (
@@ -112,19 +117,72 @@ export async function db(): Promise<LibsqlClient> {
   return client;
 }
 
-function getDbFingerprint(): string {
-  const type = process.env.DB_TYPE ?? "sqlite";
-  const conn = process.env.DB_CONNECTION_STRING ?? "";
-  return `${type}:${conn}`;
+function getDbFingerprint(connId: number): string {
+  return `conn:${connId}`;
 }
 
-async function pruneStaleSettings(fingerprint: string): Promise<void> {
+// ── DB connection management ────────────────────────────────────────────────
+
+export async function listDbConnections(): Promise<DbConnection[]> {
   const c = await db();
-  await c.execute({ sql: "DELETE FROM fk_display_settings WHERE db_fingerprint != ?", args: [fingerprint] });
-  await c.execute({ sql: "DELETE FROM field_encryption_settings WHERE db_fingerprint != ?", args: [fingerprint] });
-  await c.execute({ sql: "DELETE FROM table_view_settings WHERE db_fingerprint != ?", args: [fingerprint] });
-  await c.execute({ sql: "DELETE FROM table_policies WHERE db_fingerprint != ?", args: [fingerprint] });
-  await c.execute({ sql: "DELETE FROM column_policies WHERE db_fingerprint != ?", args: [fingerprint] });
+  const rows = await c.execute("SELECT id, name, db_type, connection_string, created_at FROM db_connections ORDER BY id");
+  return rows.rows.map((r) => ({
+    id: Number(r.id),
+    name: String(r.name),
+    db_type: String(r.db_type) as DbType,
+    connection_string: String(r.connection_string),
+    created_at: String(r.created_at),
+  }));
+}
+
+export async function getDbConnection(id: number): Promise<DbConnection | null> {
+  const c = await db();
+  const rows = await c.execute({ sql: "SELECT id, name, db_type, connection_string, created_at FROM db_connections WHERE id = ?", args: [id] });
+  if (rows.rows.length === 0) return null;
+  const r = rows.rows[0];
+  return {
+    id: Number(r.id),
+    name: String(r.name),
+    db_type: String(r.db_type) as DbType,
+    connection_string: String(r.connection_string),
+    created_at: String(r.created_at),
+  };
+}
+
+export async function createDbConnection(name: string, db_type: DbType, connection_string: string): Promise<DbConnection> {
+  const c = await db();
+  const created_at = new Date().toISOString();
+  await c.execute({ sql: "INSERT INTO db_connections (name, db_type, connection_string, created_at) VALUES (?, ?, ?, ?)", args: [name, db_type, connection_string, created_at] });
+  const rows = await c.execute({ sql: "SELECT id, name, db_type, connection_string, created_at FROM db_connections WHERE name = ? AND created_at = ?", args: [name, created_at] });
+  const r = rows.rows[rows.rows.length - 1];
+  return {
+    id: Number(r.id),
+    name: String(r.name),
+    db_type: String(r.db_type) as DbType,
+    connection_string: String(r.connection_string),
+    created_at: String(r.created_at),
+  };
+}
+
+export async function updateDbConnection(id: number, updates: Partial<Pick<DbConnection, "name" | "db_type" | "connection_string">>): Promise<boolean> {
+  const c = await db();
+  const parts: string[] = [];
+  const args: unknown[] = [];
+  if (updates.name !== undefined) { parts.push("name = ?"); args.push(updates.name); }
+  if (updates.db_type !== undefined) { parts.push("db_type = ?"); args.push(updates.db_type); }
+  if (updates.connection_string !== undefined) { parts.push("connection_string = ?"); args.push(updates.connection_string); }
+  if (parts.length === 0) return false;
+  args.push(id);
+  await c.execute({ sql: `UPDATE db_connections SET ${parts.join(", ")} WHERE id = ?`, args });
+  return true;
+}
+
+export async function deleteDbConnection(id: number): Promise<boolean> {
+  const c = await db();
+  const before = await c.execute({ sql: "SELECT id FROM db_connections WHERE id = ?", args: [id] });
+  if (before.rows.length === 0) return false;
+  await c.execute({ sql: "DELETE FROM db_connections WHERE id = ?", args: [id] });
+  return true;
 }
 
 // ── User functions ──────────────────────────────────────────────────────────
@@ -224,9 +282,8 @@ export async function deleteUser(id: number): Promise<boolean> {
 
 // ── FK display settings ─────────────────────────────────────────────────────
 
-export async function getFkSettings(tableName: string): Promise<FkDisplaySetting[]> {
-  const fingerprint = getDbFingerprint();
-  await pruneStaleSettings(fingerprint);
+export async function getFkSettings(tableName: string, connId: number): Promise<FkDisplaySetting[]> {
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const rows = await c.execute({
     sql: "SELECT column_name, display_field FROM fk_display_settings WHERE db_fingerprint = ? AND table_name = ?",
@@ -241,10 +298,10 @@ export async function getFkSettings(tableName: string): Promise<FkDisplaySetting
 export async function upsertFkSetting(
   tableName: string,
   columnName: string,
-  displayField: string
+  displayField: string,
+  connId: number
 ): Promise<void> {
-  const fingerprint = getDbFingerprint();
-  await pruneStaleSettings(fingerprint);
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   await c.execute({
     sql: `INSERT INTO fk_display_settings (db_fingerprint, table_name, column_name, display_field)
@@ -256,9 +313,8 @@ export async function upsertFkSetting(
 
 // ── Encryption settings ─────────────────────────────────────────────────────
 
-export async function getEncryptionSettings(tableName: string): Promise<EncryptionSetting[]> {
-  const fingerprint = getDbFingerprint();
-  await pruneStaleSettings(fingerprint);
+export async function getEncryptionSettings(tableName: string, connId: number): Promise<EncryptionSetting[]> {
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const rows = await c.execute({
     sql: "SELECT column_name, algorithm, salt_column FROM field_encryption_settings WHERE db_fingerprint = ? AND table_name = ?",
@@ -275,10 +331,10 @@ export async function upsertEncryptionSetting(
   tableName: string,
   columnName: string,
   algorithm: string,
-  saltColumn?: string
+  saltColumn: string | undefined,
+  connId: number
 ): Promise<void> {
-  const fingerprint = getDbFingerprint();
-  await pruneStaleSettings(fingerprint);
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   await c.execute({
     sql: `INSERT INTO field_encryption_settings (db_fingerprint, table_name, column_name, algorithm, salt_column)
@@ -291,10 +347,10 @@ export async function upsertEncryptionSetting(
 
 export async function deleteEncryptionSetting(
   tableName: string,
-  columnName: string
+  columnName: string,
+  connId: number
 ): Promise<void> {
-  const fingerprint = getDbFingerprint();
-  await pruneStaleSettings(fingerprint);
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   await c.execute({
     sql: "DELETE FROM field_encryption_settings WHERE db_fingerprint = ? AND table_name = ? AND column_name = ?",
@@ -310,9 +366,8 @@ export interface ViewSettings {
   sort_dir: "asc" | "desc";
 }
 
-export async function getViewSettings(tableName: string): Promise<ViewSettings | null> {
-  const fingerprint = getDbFingerprint();
-  await pruneStaleSettings(fingerprint);
+export async function getViewSettings(tableName: string, connId: number): Promise<ViewSettings | null> {
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const rows = await c.execute({
     sql: "SELECT visible_cols, sort_col, sort_dir FROM table_view_settings WHERE db_fingerprint = ? AND table_name = ?",
@@ -335,10 +390,10 @@ export async function upsertViewSettings(
   tableName: string,
   visibleCols: string[],
   sortCol: string,
-  sortDir: "asc" | "desc"
+  sortDir: "asc" | "desc",
+  connId: number
 ): Promise<void> {
-  const fingerprint = getDbFingerprint();
-  await pruneStaleSettings(fingerprint);
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   await c.execute({
     sql: `INSERT INTO table_view_settings (db_fingerprint, table_name, visible_cols, sort_col, sort_dir)
@@ -355,9 +410,10 @@ const DEFAULT_TABLE_POLICY = { can_view: true, can_insert: true, can_update: tru
 
 export async function getUserTablePolicy(
   userId: number,
-  tableName: string
+  tableName: string,
+  connId: number
 ): Promise<{ can_view: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean }> {
-  const fingerprint = getDbFingerprint();
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const rows = await c.execute({
     sql: "SELECT can_view, can_insert, can_update, can_delete FROM table_policies WHERE db_fingerprint = ? AND user_id = ? AND table_name = ?",
@@ -375,9 +431,10 @@ export async function getUserTablePolicy(
 
 export async function getUserColumnPolicies(
   userId: number,
-  tableName: string
+  tableName: string,
+  connId: number
 ): Promise<Record<string, { hidden: boolean; read_only: boolean }>> {
-  const fingerprint = getDbFingerprint();
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const rows = await c.execute({
     sql: "SELECT column_name, hidden, read_only FROM column_policies WHERE db_fingerprint = ? AND user_id = ? AND table_name = ?",
@@ -390,10 +447,10 @@ export async function getUserColumnPolicies(
   return out;
 }
 
-export async function getTablePoliciesForTable(tableName: string): Promise<
+export async function getTablePoliciesForTable(tableName: string, connId: number): Promise<
   { user_id: number; can_view: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean }[]
 > {
-  const fingerprint = getDbFingerprint();
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const rows = await c.execute({
     sql: "SELECT user_id, can_view, can_insert, can_update, can_delete FROM table_policies WHERE db_fingerprint = ? AND table_name = ?",
@@ -408,10 +465,10 @@ export async function getTablePoliciesForTable(tableName: string): Promise<
   }));
 }
 
-export async function getColumnPoliciesForTable(tableName: string): Promise<
+export async function getColumnPoliciesForTable(tableName: string, connId: number): Promise<
   { user_id: number; column_name: string; hidden: boolean; read_only: boolean }[]
 > {
-  const fingerprint = getDbFingerprint();
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const rows = await c.execute({
     sql: "SELECT user_id, column_name, hidden, read_only FROM column_policies WHERE db_fingerprint = ? AND table_name = ?",
@@ -428,9 +485,10 @@ export async function getColumnPoliciesForTable(tableName: string): Promise<
 export async function upsertTablePolicy(
   userId: number,
   tableName: string,
-  policy: { can_view: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean }
+  policy: { can_view: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean },
+  connId: number
 ): Promise<void> {
-  const fingerprint = getDbFingerprint();
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   await c.execute({
     sql: `INSERT INTO table_policies (db_fingerprint, user_id, table_name, can_view, can_insert, can_update, can_delete)
@@ -446,9 +504,10 @@ export async function upsertColumnPolicy(
   userId: number,
   tableName: string,
   columnName: string,
-  policy: { hidden: boolean; read_only: boolean }
+  policy: { hidden: boolean; read_only: boolean },
+  connId: number
 ): Promise<void> {
-  const fingerprint = getDbFingerprint();
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   await c.execute({
     sql: `INSERT INTO column_policies (db_fingerprint, user_id, table_name, column_name, hidden, read_only)
@@ -461,14 +520,14 @@ export async function upsertColumnPolicy(
 
 // ── Settings backup / restore ───────────────────────────────────────────────
 
-export async function exportAllSettings(): Promise<{
+export async function exportAllSettings(connId: number): Promise<{
   fk_display: { table_name: string; column_name: string; display_field: string }[];
   field_encryption: { table_name: string; column_name: string; algorithm: string; salt_column: string | null }[];
   view_settings: { table_name: string; visible_cols: string[]; sort_col: string; sort_dir: string }[];
   table_policies: { user_id: number; username: string; table_name: string; can_view: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean }[];
   column_policies: { user_id: number; username: string; table_name: string; column_name: string; hidden: boolean; read_only: boolean }[];
 }> {
-  const fingerprint = getDbFingerprint();
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
 
   const fkRows = await c.execute({ sql: "SELECT table_name, column_name, display_field FROM fk_display_settings WHERE db_fingerprint = ?", args: [fingerprint] });
@@ -492,11 +551,10 @@ export async function restoreAllSettings(backup: {
   view_settings?: { table_name: string; visible_cols: string[]; sort_col: string; sort_dir: string }[];
   table_policies?: { username: string; table_name: string; can_view: boolean; can_insert: boolean; can_update: boolean; can_delete: boolean }[];
   column_policies?: { username: string; table_name: string; column_name: string; hidden: boolean; read_only: boolean }[];
-}): Promise<{ skipped_users: string[] }> {
-  const fingerprint = getDbFingerprint();
+}, connId: number): Promise<{ skipped_users: string[] }> {
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
 
-  // Clear existing settings for this fingerprint
   await c.execute({ sql: "DELETE FROM fk_display_settings WHERE db_fingerprint = ?", args: [fingerprint] });
   await c.execute({ sql: "DELETE FROM field_encryption_settings WHERE db_fingerprint = ?", args: [fingerprint] });
   await c.execute({ sql: "DELETE FROM table_view_settings WHERE db_fingerprint = ?", args: [fingerprint] });
@@ -513,7 +571,6 @@ export async function restoreAllSettings(backup: {
     await c.execute({ sql: "INSERT INTO table_view_settings (db_fingerprint, table_name, visible_cols, sort_col, sort_dir) VALUES (?,?,?,?,?)", args: [fingerprint, r.table_name, JSON.stringify(r.visible_cols), r.sort_col, r.sort_dir] });
   }
 
-  // Resolve usernames to IDs for policy rows
   const skipped_users: string[] = [];
   const usernameToId = new Map<string, number>();
   const allUsers = await c.execute("SELECT id, username FROM users");
@@ -543,8 +600,8 @@ export async function logAudit(entry: {
   recordId?: string;
   changes?: { before?: Record<string, unknown>; after?: Record<string, unknown> };
   ip?: string | null;
-}): Promise<void> {
-  const fingerprint = getDbFingerprint();
+}, connId: number = 0): Promise<void> {
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   await c.execute({
     sql: `INSERT INTO audit_logs (db_fingerprint, user_id, username, action, table_name, record_id, changes, ip, created_at)
@@ -576,14 +633,22 @@ export async function getAuditLogs(opts: {
   username?: string;
   from?: string;
   to?: string;
-}): Promise<{ logs: AuditLog[]; total: number }> {
-  const fingerprint = getDbFingerprint();
+}, connId: number): Promise<{ logs: AuditLog[]; total: number }> {
+  const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const { page = 1, pageSize = 50, action, tableName, username, from, to } = opts;
   const offset = (Math.max(1, page) - 1) * pageSize;
 
-  const conditions: string[] = ["db_fingerprint = ?"];
-  const args: unknown[] = [fingerprint];
+  // Always include system-level events (connId=0: login, logout) alongside per-connection events
+  const systemFingerprint = getDbFingerprint(0);
+  const conditions: string[] = [
+    fingerprint === systemFingerprint
+      ? "db_fingerprint = ?"
+      : "(db_fingerprint = ? OR db_fingerprint = ?)",
+  ];
+  const args: unknown[] = fingerprint === systemFingerprint
+    ? [fingerprint]
+    : [fingerprint, systemFingerprint];
 
   if (action) { conditions.push("action = ?"); args.push(action); }
   if (tableName) { conditions.push("table_name = ?"); args.push(tableName); }
