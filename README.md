@@ -11,6 +11,9 @@ Supports **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server**, and **SQLite**.
 
 ## Features
 
+### Multiple database connections
+Add and switch between multiple database connections from the dashboard header. Connection credentials are stored securely in the internal SQLite database. Includes a test-connection button so you can verify a connection string before saving.
+
 ### Table browser & CRUD
 Paginated table view with search and column sorting. Create, edit, duplicate, and delete rows. JSON columns get a Monaco editor.
 
@@ -63,11 +66,11 @@ Every login, create, update, and delete is recorded. Filter by action type, tabl
 
 ```bash
 cp .env.example .env
-# Edit .env — set DB_TYPE, DB_CONNECTION_STRING, and JWT_SECRET
+# Edit .env — set JWT_SECRET at minimum
 docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and create your admin account on first run.
+Open [http://localhost:3000](http://localhost:3000), create your admin account on first run, then add a database connection from the dashboard header (⚙️ icon).
 
 ---
 
@@ -75,12 +78,17 @@ Open [http://localhost:3000](http://localhost:3000) and create your admin accoun
 
 | Variable | Required | Description |
 |---|---|---|
-| `DB_TYPE` | yes | `postgres` \| `mysql` \| `mariadb` \| `mssql` \| `sqlite` |
-| `DB_CONNECTION_STRING` | yes | Connection string for the database to administer |
 | `JWT_SECRET` | yes | Random 32+ character string for JWT signing |
 | `SECURE_COOKIES` | no | Set to `false` when serving over plain HTTP (default: secure in production) |
 | `BASE_PATH` | no | Sub-path prefix, e.g. `/strawdmin` |
 | `DATA_DIR` | no | Override for internal data directory (default: `./data`) |
+| `INTERNAL_DB_URL` | no | Override internal database URL (advanced usage) |
+
+> **Database connections** are managed from the dashboard, not via environment variables. After creating your admin account, use the database switcher in the header to add connections. See [Connection string formats](#connection-string-formats) below.
+
+### Legacy env vars (migration)
+
+If you set `DB_TYPE` and `DB_CONNECTION_STRING` in your `.env` (from a previous version), Strawdmin will automatically import them as a "Default" connection on first startup. You can then manage all connections from the UI and remove the env vars.
 
 ### Connection string formats
 
@@ -156,7 +164,7 @@ npm run dev
 
 ## Data persistence
 
-The internal app state (users, settings) is stored in a SQLite database at `data/app.db`. Backups are stored as JSON files in `data/backups/`. Mount the `data/` directory as a Docker volume to persist state across container restarts.
+The internal app state (users, connection settings) is stored in a SQLite database at `data/app.db`. Backups are stored as JSON files in `data/backups/`. Mount the `data/` directory as a Docker volume to persist state across container restarts.
 
 ```yaml
 volumes:

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDriver } from "@/lib/drivers";
 import { getTable } from "@/lib/introspect";
+import { getActiveConnection } from "@/lib/active-connection";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -15,8 +16,11 @@ export async function GET(req: NextRequest) {
   const ids = idsParam.split(",").slice(0, 200).filter(Boolean);
   if (ids.length === 0) return NextResponse.json({});
 
+  const conn = await getActiveConnection(req);
+  if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
+
   try {
-    const schema = await getTable(refTable);
+    const schema = await getTable(refTable, conn);
     if (!schema) return NextResponse.json({ error: "Table not found" }, { status: 404 });
 
     const validCols = new Set(schema.columns.map((c) => c.name));
@@ -24,7 +28,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid field" }, { status: 400 });
     }
 
-    const driver = getDriver();
+    const driver = getDriver(conn);
     const pk = schema.primaryKey;
     const placeholders = ids.map((_, i) => driver.placeholder(i)).join(", ");
     const sql = `SELECT ${driver.quote(pk)}, ${driver.quote(field)} FROM ${driver.quote(refTable)} WHERE ${driver.quote(pk)} IN (${placeholders})`;

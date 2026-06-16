@@ -1,17 +1,21 @@
-import type { Schema, SchemaTable, Column, DbType } from "./types";
+import type { Schema, SchemaTable, Column, DbType, DbConnection } from "./types";
 import { getDriver, getDbName } from "./drivers";
 
-let cachedSchema: Schema | null = null;
+const schemaCache = new Map<number, Schema>();
 
-export function clearSchemaCache(): void {
-  cachedSchema = null;
+export function clearSchemaCache(connId?: number): void {
+  if (connId !== undefined) {
+    schemaCache.delete(connId);
+  } else {
+    schemaCache.clear();
+  }
 }
 
-export async function introspect(): Promise<Schema> {
-  if (cachedSchema) return cachedSchema;
+export async function introspect(conn: DbConnection): Promise<Schema> {
+  if (schemaCache.has(conn.id)) return schemaCache.get(conn.id)!;
 
-  const type = (process.env.DB_TYPE ?? "sqlite") as DbType;
-  const driver = getDriver();
+  const type = conn.db_type as DbType;
+  const driver = getDriver(conn);
 
   let tables: SchemaTable[];
   switch (type) {
@@ -29,15 +33,16 @@ export async function introspect(): Promise<Schema> {
       tables = await introspectSqlite(driver);
       break;
     default:
-      throw new Error(`Unsupported DB_TYPE: ${type}`);
+      throw new Error(`Unsupported db_type: ${type}`);
   }
 
-  cachedSchema = { tables, dbName: getDbName() };
-  return cachedSchema;
+  const schema: Schema = { tables, dbName: getDbName(conn) };
+  schemaCache.set(conn.id, schema);
+  return schema;
 }
 
-export async function getTable(name: string): Promise<SchemaTable | null> {
-  const schema = await introspect();
+export async function getTable(name: string, conn: DbConnection): Promise<SchemaTable | null> {
+  const schema = await introspect(conn);
   return schema.tables.find((t) => t.name === name) ?? null;
 }
 
@@ -88,7 +93,7 @@ async function introspectPostgres(driver: any): Promise<SchemaTable[]> {
     )) as SizeRow[];
     for (const r of sizeRows) sizeMap.set(r.table_name, Number(r.size_bytes));
   } catch {
-    // size info unavailable (e.g. missing pg_statio_user_tables permission)
+    // size info unavailable
   }
 
   const pkSet = new Set(pkRows.map((r) => `${r.table_name}.${r.column_name}`));

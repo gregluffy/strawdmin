@@ -6,6 +6,7 @@ import { RecordForm } from "@/components/record/RecordForm";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
 import { getUserTablePolicy, getUserColumnPolicies } from "@/lib/internal-db";
+import { getServerActiveConnection } from "@/lib/server-connection";
 import Link from "next/link";
 
 export default async function RecordPage({
@@ -14,7 +15,10 @@ export default async function RecordPage({
   params: Promise<{ tableName: string; id: string }>;
 }) {
   const { tableName, id } = await params;
-  const schema = await getTable(tableName);
+  const conn = await getServerActiveConnection();
+  if (!conn) notFound();
+
+  const schema = await getTable(tableName, conn);
   if (!schema) notFound();
 
   const cookieStore = await cookies();
@@ -31,16 +35,16 @@ export default async function RecordPage({
   let columnPolicies: Record<string, { hidden: boolean; read_only: boolean }> = {};
 
   if (!isAdmin && userId !== null) {
-    const policy = await getUserTablePolicy(userId, tableName);
+    const policy = await getUserTablePolicy(userId, tableName, conn.id);
     if (!policy.can_view) redirect("/dashboard");
     canEdit = policy.can_update;
-    columnPolicies = await getUserColumnPolicies(userId, tableName);
+    columnPolicies = await getUserColumnPolicies(userId, tableName, conn.id);
   }
 
   let row: Record<string, unknown> | null = null;
   let fetchError = "";
   try {
-    const driver = getDriver();
+    const driver = getDriver(conn);
     const rows = await driver.query(
       `SELECT * FROM ${driver.quote(tableName)} WHERE ${driver.quote(schema.primaryKey)} = ${driver.placeholder(0)}`,
       [id]
@@ -59,7 +63,6 @@ export default async function RecordPage({
         row[col.name] = JSON.stringify(row[col.name], null, 2);
       }
     }
-    // Remove hidden columns from the row data
     for (const [col, p] of Object.entries(columnPolicies)) {
       if (p.hidden) delete row[col];
     }
