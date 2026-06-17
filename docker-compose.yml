@@ -8,15 +8,19 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DB_TYPE=${DB_TYPE}
-      - DB_CONNECTION_STRING=${DB_CONNECTION_STRING}
       - JWT_SECRET=${JWT_SECRET}
       - SECURE_COOKIES=${SECURE_COOKIES}
+      # Legacy — only needed when migrating from a single-connection setup.
+      # Strawdmin imports these as a "Default" connection on first start.
+      # Once imported you can manage all connections from the UI and remove them.
+      - DB_TYPE=${DB_TYPE}
+      - DB_CONNECTION_STRING=${DB_CONNECTION_STRING}
     volumes:
       # Persistent data directory — REQUIRED to survive container restarts and upgrades.
       # Contains:
-      #   app.db          — internal SQLite database (users, FK display settings,
-      #                     field encryption settings, column view preferences)
+      #   app.db          — internal SQLite database (users, database connections,
+      #                     FK display settings, field encryption settings,
+      #                     column view preferences, access policies)
       #   backups/        — JSON backup files created from the Backups page
       - ./data:/app/data
     restart: unless-stopped
