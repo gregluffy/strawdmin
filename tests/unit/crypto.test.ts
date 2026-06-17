@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hashSHA256, hashSHA512, generateSalt } from "@/lib/crypto";
+import { hashSHA256, hashSHA512, hashSHA512Standard, generateSalt } from "@/lib/crypto";
 
 describe("hashSHA256", () => {
   it("returns a 64-char hex string", () => {
@@ -51,6 +51,29 @@ describe("hashSHA512", () => {
 
   it("SHA256 and SHA512 produce different output for same input", () => {
     expect(hashSHA256("password", "salt")).not.toBe(hashSHA512("password", "salt"));
+  });
+});
+
+describe("hashSHA512Standard", () => {
+  it("returns a 128-char hex string", () => {
+    const result = hashSHA512Standard("password", "salt");
+    expect(result).toMatch(/^[0-9a-f]{128}$/);
+  });
+
+  it("is deterministic", () => {
+    expect(hashSHA512Standard("password", "salt")).toBe(hashSHA512Standard("password", "salt"));
+  });
+
+  it("different salts produce different hashes", () => {
+    expect(hashSHA512Standard("password", "salt1")).not.toBe(hashSHA512Standard("password", "salt2"));
+  });
+
+  it("different values produce different hashes", () => {
+    expect(hashSHA512Standard("password1", "salt")).not.toBe(hashSHA512Standard("password2", "salt"));
+  });
+
+  it("produces different output than hashSHA512 (custom) for same input", () => {
+    expect(hashSHA512Standard("password", "salt")).not.toBe(hashSHA512("password", "salt"));
   });
 });
 

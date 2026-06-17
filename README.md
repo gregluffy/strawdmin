@@ -18,14 +18,15 @@ Add and switch between multiple database connections from the dashboard header. 
 Paginated table view with search and column sorting. Create, edit, duplicate, and delete rows. JSON columns get a Monaco editor.
 
 ### FK display
-Configure which field to show for foreign key columns instead of raw IDs — names, emails, slugs, or any other column from the related table.
+Configure which field to show for foreign key columns instead of raw IDs — names, emails, slugs, or any other column from the related table. Table search is FK-aware: searching "John" will match rows whose FK points to a related record with "John" in the configured display field.
 
 ![FK display](assets/fk-mask.png)
 
 ### Column visibility & row expand
 Hide columns you don't need on the table view. Expand any row inline to see all its fields, including hidden ones.
 
-![Column visibility and row expand](assets/hide-cols.png)
+![Column visibility](assets/hide-cols.png)
+![Row expand](assets/expand-rows.png)
 
 ### Write-time hashing
 Mark columns that your application stores as hashes (e.g. passwords). Configure the algorithm (SHA-256 or SHA-512) and an optional salt column per field.
