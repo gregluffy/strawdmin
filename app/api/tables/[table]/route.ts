@@ -3,7 +3,7 @@ import { getDriver } from "@/lib/drivers";
 import { getTable } from "@/lib/introspect";
 import { serializeRow, deserializeBinary } from "@/lib/sql";
 import { getRequestUser } from "@/lib/request-auth";
-import { getUserTablePolicy, getUserColumnPolicies, logAudit } from "@/lib/internal-db";
+import { getUserTablePolicy, getUserColumnPolicies, logAudit, getFkSettings } from "@/lib/internal-db";
 import { getActiveConnection } from "@/lib/active-connection";
 
 export async function GET(
@@ -39,9 +39,30 @@ export async function GET(
 
     const driver = getDriver(conn);
 
-    let countSql = `SELECT COUNT(*) as total FROM ${driver.quote(table)}`;
-    let rowsSql = `SELECT * FROM ${driver.quote(table)}`;
     const queryParams: unknown[] = [];
+    const fkJoins: string[] = [];
+    const fkConditions: Array<{ alias: string; field: string }> = [];
+
+    if (search) {
+      const fkSettings = await getFkSettings(table, conn.id);
+      let joinIdx = 0;
+      for (const setting of fkSettings) {
+        const col = schema.columns.find((c) => c.name === setting.column_name);
+        if (!col?.fk) continue;
+        const refSchema = await getTable(col.fk.table, conn);
+        if (!refSchema?.columns.some((c) => c.name === setting.display_field)) continue;
+        const alias = `_fk${joinIdx++}`;
+        fkJoins.push(
+          `LEFT JOIN ${driver.quote(col.fk.table)} ${alias} ON ${driver.quote(table)}.${driver.quote(setting.column_name)} = ${alias}.${driver.quote(col.fk.column)}`
+        );
+        fkConditions.push({ alias, field: setting.display_field });
+      }
+    }
+
+    const joinClause = fkJoins.length > 0 ? ` ${fkJoins.join(" ")}` : "";
+    const tableRef = fkJoins.length > 0 ? `${driver.quote(table)}.` : "";
+    let countSql = `SELECT COUNT(*) as total FROM ${driver.quote(table)}${joinClause}`;
+    let rowsSql = `SELECT ${tableRef}* FROM ${driver.quote(table)}${joinClause}`;
 
     if (search) {
       const textCols = schema.columns.filter(
@@ -49,18 +70,25 @@ export async function GET(
           (t) => c.type.toLowerCase().includes(t)
         )
       );
-      if (textCols.length > 0) {
-        const conditions = textCols.map((c, i) => {
-          queryParams.push(`%${search}%`);
-          return `${driver.quote(c.name)} LIKE ${driver.placeholder(i)}`;
-        });
+      const conditions: string[] = [];
+      for (const c of textCols) {
+        const idx = queryParams.length;
+        queryParams.push(`%${search}%`);
+        conditions.push(`${tableRef}${driver.quote(c.name)} LIKE ${driver.placeholder(idx)}`);
+      }
+      for (const { alias, field } of fkConditions) {
+        const idx = queryParams.length;
+        queryParams.push(`%${search}%`);
+        conditions.push(`${alias}.${driver.quote(field)} LIKE ${driver.placeholder(idx)}`);
+      }
+      if (conditions.length > 0) {
         const where = ` WHERE ${conditions.join(" OR ")}`;
         countSql += where;
         rowsSql += where;
       }
     }
 
-    rowsSql += ` ORDER BY ${driver.quote(sortCol)} ${dir}`;
+    rowsSql += ` ORDER BY ${tableRef}${driver.quote(sortCol)} ${dir}`;
     if (driver.dbType === "mssql") {
       rowsSql += ` OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY`;
     } else {

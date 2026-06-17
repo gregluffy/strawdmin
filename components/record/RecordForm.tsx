@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import type { SchemaTable } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
+import { getAlgorithmLabel } from "@/lib/crypto";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -171,7 +172,7 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
             <div>
               <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">Set hashed value</p>
               <h2 className="font-semibold text-[var(--foreground)] font-mono">{encModal.column}</h2>
-              <p className="text-xs text-[var(--muted-foreground)] mt-1">Algorithm: <span className="text-violet-400">{encModal.algorithm}</span> · The plaintext you enter will be hashed and placed in the field — the original value is never stored.</p>
+              <p className="text-xs text-[var(--muted-foreground)] mt-1">Algorithm: <span className="text-violet-400">{getAlgorithmLabel(encModal.algorithm)}</span> · The plaintext you enter will be hashed and placed in the field — the original value is never stored.</p>
             </div>
             <div className="flex flex-col gap-3">
               <div>
@@ -341,7 +342,7 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
               <button
                 type="button"
                 onClick={() => openEncModal(col.name)}
-                title={`Enter the new plaintext value — Strawdmin will hash it with ${encSettings[col.name]?.algorithm} and put the result in this field, matching what your application stores. Useful for support staff resetting hashed fields like passwords without needing to know the hash format.`}
+                title={`Enter the new plaintext value — Strawdmin will hash it with ${getAlgorithmLabel(encSettings[col.name]?.algorithm ?? "")} and put the result in this field, matching what your application stores. Useful for support staff resetting hashed fields like passwords without needing to know the hash format.`}
                 className="mt-1.5 text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1 transition-colors"
               >
                 🔐 Set hashed value
