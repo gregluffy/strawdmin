@@ -26,8 +26,8 @@ export async function PUT(req: NextRequest) {
     if (!table || !column || !algorithm) {
       return NextResponse.json({ error: "Missing table, column, or algorithm" }, { status: 400 });
     }
-    if (algorithm !== "SHA512" && algorithm !== "SHA256") {
-      return NextResponse.json({ error: "algorithm must be SHA512 or SHA256" }, { status: 400 });
+    if (algorithm !== "SHA512" && algorithm !== "SHA512_STD" && algorithm !== "SHA256") {
+      return NextResponse.json({ error: "algorithm must be SHA512, SHA512_STD, or SHA256" }, { status: 400 });
     }
     await upsertEncryptionSetting(table, column, algorithm, saltColumn ?? undefined, conn.id);
     return new NextResponse(null, { status: 204 });
