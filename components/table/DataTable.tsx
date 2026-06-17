@@ -4,6 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, useCallback } f
 import Link from "next/link";
 import type { PaginatedResult, SchemaTable, Column, TablePolicy } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
+import { getAlgorithmLabel } from "@/lib/crypto";
 
 interface FkModal {
   refTable: string;
@@ -658,7 +659,8 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                   className="w-full px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
                 >
                   <option value="SHA256">SHA256</option>
-                  <option value="SHA512">SHA512</option>
+                  <option value="SHA512_STD">SHA512</option>
+                  <option value="SHA512">SHA512 (custom)</option>
                 </select>
               </div>
               <div>
@@ -1120,7 +1122,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                         <span className="px-1 py-0.5 bg-emerald-500/15 text-emerald-400 text-[9px] rounded font-sans font-semibold">JSON</span>
                       )}
                       {encSettings[col.name] && (
-                        <span className="px-1 py-0.5 bg-violet-500/15 text-violet-400 text-[9px] rounded font-sans font-semibold" title={`Encrypted: ${encSettings[col.name].algorithm}`}>🔒</span>
+                        <span className="px-1 py-0.5 bg-violet-500/15 text-violet-400 text-[9px] rounded font-sans font-semibold" title={`Hashed: ${getAlgorithmLabel(encSettings[col.name].algorithm)}`}>🔒</span>
                       )}
                     </span>
                   </th>
