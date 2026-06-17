@@ -25,7 +25,8 @@ Configure which field to show for foreign key columns instead of raw IDs — nam
 ### Column visibility & row expand
 Hide columns you don't need on the table view. Expand any row inline to see all its fields, including hidden ones.
 
-![Column visibility and row expand](assets/hide-cols.png)
+![Column visibility](assets/hide-cols.png)
+![Row expand](assets/expand-rows.png)
 
 ### Write-time hashing
 Mark columns that your application stores as hashes (e.g. passwords). Configure the algorithm (SHA-256 or SHA-512) and an optional salt column per field.
