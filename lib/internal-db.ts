@@ -47,6 +47,19 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
     connection_string TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`);
+  // SSH tunnel columns — added via ALTER TABLE for backwards-compat with existing installs
+  for (const [col, def] of [
+    ["ssh_enabled", "INTEGER NOT NULL DEFAULT 0"],
+    ["ssh_host", "TEXT"],
+    ["ssh_port", "INTEGER"],
+    ["ssh_user", "TEXT"],
+    ["ssh_auth_type", "TEXT"],
+    ["ssh_password", "TEXT"],
+    ["ssh_private_key", "TEXT"],
+    ["ssh_passphrase", "TEXT"],
+  ] as [string, string][]) {
+    try { await db.execute(`ALTER TABLE db_connections ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
+  }
   await db.execute(`CREATE TABLE IF NOT EXISTS fk_display_settings (
     db_fingerprint TEXT NOT NULL,
     table_name TEXT NOT NULL,
@@ -123,54 +136,94 @@ function getDbFingerprint(connId: number): string {
 
 // ── DB connection management ────────────────────────────────────────────────
 
-export async function listDbConnections(): Promise<DbConnection[]> {
-  const c = await db();
-  const rows = await c.execute("SELECT id, name, db_type, connection_string, created_at FROM db_connections ORDER BY id");
-  return rows.rows.map((r) => ({
+function rowToDbConnection(r: Record<string, unknown>): DbConnection {
+  return {
     id: Number(r.id),
     name: String(r.name),
     db_type: String(r.db_type) as DbType,
     connection_string: String(r.connection_string),
     created_at: String(r.created_at),
-  }));
+    ssh_enabled: r.ssh_enabled ? Boolean(Number(r.ssh_enabled)) : false,
+    ssh_host: r.ssh_host != null ? String(r.ssh_host) : undefined,
+    ssh_port: r.ssh_port != null ? Number(r.ssh_port) : undefined,
+    ssh_user: r.ssh_user != null ? String(r.ssh_user) : undefined,
+    ssh_auth_type: r.ssh_auth_type != null ? (String(r.ssh_auth_type) as "password" | "key") : undefined,
+    ssh_password: r.ssh_password != null ? String(r.ssh_password) : undefined,
+    ssh_private_key: r.ssh_private_key != null ? String(r.ssh_private_key) : undefined,
+    ssh_passphrase: r.ssh_passphrase != null ? String(r.ssh_passphrase) : undefined,
+  };
+}
+
+export async function listDbConnections(): Promise<DbConnection[]> {
+  const c = await db();
+  const rows = await c.execute("SELECT id, name, db_type, connection_string, created_at, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_password, ssh_private_key, ssh_passphrase FROM db_connections ORDER BY id");
+  return rows.rows.map(rowToDbConnection);
 }
 
 export async function getDbConnection(id: number): Promise<DbConnection | null> {
   const c = await db();
-  const rows = await c.execute({ sql: "SELECT id, name, db_type, connection_string, created_at FROM db_connections WHERE id = ?", args: [id] });
+  const rows = await c.execute({ sql: "SELECT id, name, db_type, connection_string, created_at, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_password, ssh_private_key, ssh_passphrase FROM db_connections WHERE id = ?", args: [id] });
   if (rows.rows.length === 0) return null;
-  const r = rows.rows[0];
-  return {
-    id: Number(r.id),
-    name: String(r.name),
-    db_type: String(r.db_type) as DbType,
-    connection_string: String(r.connection_string),
-    created_at: String(r.created_at),
-  };
+  return rowToDbConnection(rows.rows[0]);
 }
 
-export async function createDbConnection(name: string, db_type: DbType, connection_string: string): Promise<DbConnection> {
+export interface SshSettings {
+  ssh_enabled?: boolean;
+  ssh_host?: string | null;
+  ssh_port?: number | null;
+  ssh_user?: string | null;
+  ssh_auth_type?: "password" | "key" | null;
+  ssh_password?: string | null;
+  ssh_private_key?: string | null;
+  ssh_passphrase?: string | null;
+}
+
+export async function createDbConnection(
+  name: string,
+  db_type: DbType,
+  connection_string: string,
+  ssh?: SshSettings
+): Promise<DbConnection> {
   const c = await db();
   const created_at = new Date().toISOString();
-  await c.execute({ sql: "INSERT INTO db_connections (name, db_type, connection_string, created_at) VALUES (?, ?, ?, ?)", args: [name, db_type, connection_string, created_at] });
-  const rows = await c.execute({ sql: "SELECT id, name, db_type, connection_string, created_at FROM db_connections WHERE name = ? AND created_at = ?", args: [name, created_at] });
-  const r = rows.rows[rows.rows.length - 1];
-  return {
-    id: Number(r.id),
-    name: String(r.name),
-    db_type: String(r.db_type) as DbType,
-    connection_string: String(r.connection_string),
-    created_at: String(r.created_at),
-  };
+  await c.execute({
+    sql: `INSERT INTO db_connections (name, db_type, connection_string, created_at, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_password, ssh_private_key, ssh_passphrase)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      name, db_type, connection_string, created_at,
+      ssh?.ssh_enabled ? 1 : 0,
+      ssh?.ssh_host ?? null,
+      ssh?.ssh_port ?? null,
+      ssh?.ssh_user ?? null,
+      ssh?.ssh_auth_type ?? null,
+      ssh?.ssh_password ?? null,
+      ssh?.ssh_private_key ?? null,
+      ssh?.ssh_passphrase ?? null,
+    ],
+  });
+  const rows = await c.execute({ sql: "SELECT id, name, db_type, connection_string, created_at, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_password, ssh_private_key, ssh_passphrase FROM db_connections WHERE name = ? AND created_at = ?", args: [name, created_at] });
+  return rowToDbConnection(rows.rows[rows.rows.length - 1]);
 }
 
-export async function updateDbConnection(id: number, updates: Partial<Pick<DbConnection, "name" | "db_type" | "connection_string">>): Promise<boolean> {
+export async function updateDbConnection(
+  id: number,
+  updates: Partial<Pick<DbConnection, "name" | "db_type" | "connection_string"> & SshSettings>
+): Promise<boolean> {
   const c = await db();
   const parts: string[] = [];
   const args: unknown[] = [];
   if (updates.name !== undefined) { parts.push("name = ?"); args.push(updates.name); }
   if (updates.db_type !== undefined) { parts.push("db_type = ?"); args.push(updates.db_type); }
   if (updates.connection_string !== undefined) { parts.push("connection_string = ?"); args.push(updates.connection_string); }
+  if (updates.ssh_enabled !== undefined) { parts.push("ssh_enabled = ?"); args.push(updates.ssh_enabled ? 1 : 0); }
+  if (updates.ssh_host !== undefined) { parts.push("ssh_host = ?"); args.push(updates.ssh_host || null); }
+  if (updates.ssh_port !== undefined) { parts.push("ssh_port = ?"); args.push(updates.ssh_port || null); }
+  if (updates.ssh_user !== undefined) { parts.push("ssh_user = ?"); args.push(updates.ssh_user || null); }
+  if (updates.ssh_auth_type !== undefined) { parts.push("ssh_auth_type = ?"); args.push(updates.ssh_auth_type || null); }
+  // Credentials only updated when explicitly provided (non-undefined, non-null — empty string clears)
+  if (updates.ssh_password !== undefined) { parts.push("ssh_password = ?"); args.push(updates.ssh_password || null); }
+  if (updates.ssh_private_key !== undefined) { parts.push("ssh_private_key = ?"); args.push(updates.ssh_private_key || null); }
+  if (updates.ssh_passphrase !== undefined) { parts.push("ssh_passphrase = ?"); args.push(updates.ssh_passphrase || null); }
   if (parts.length === 0) return false;
   args.push(id);
   await c.execute({ sql: `UPDATE db_connections SET ${parts.join(", ")} WHERE id = ?`, args });
