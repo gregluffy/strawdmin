@@ -18,8 +18,14 @@ export async function GET(req: NextRequest) {
         name: c.name,
         db_type: c.db_type,
         connection_string: user.role === "admin" ? c.connection_string : undefined,
-        created_at: c.created_at,
         is_active: activeConn?.id === c.id,
+        created_at: c.created_at,
+        // SSH config — never expose credentials
+        ssh_enabled: c.ssh_enabled ?? false,
+        ssh_host: user.role === "admin" ? (c.ssh_host ?? null) : undefined,
+        ssh_port: user.role === "admin" ? (c.ssh_port ?? 22) : undefined,
+        ssh_user: user.role === "admin" ? (c.ssh_user ?? null) : undefined,
+        ssh_auth_type: user.role === "admin" ? (c.ssh_auth_type ?? "password") : undefined,
       })),
       active_id: activeConn?.id ?? null,
     });
@@ -33,7 +39,8 @@ export async function POST(req: NextRequest) {
   if (!user || user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    const { name, db_type, connection_string } = await req.json();
+    const body = await req.json();
+    const { name, db_type, connection_string } = body;
     if (!name || !db_type || !connection_string) {
       return NextResponse.json({ error: "Missing name, db_type, or connection_string" }, { status: 400 });
     }
@@ -41,8 +48,20 @@ export async function POST(req: NextRequest) {
     if (!validTypes.includes(db_type)) {
       return NextResponse.json({ error: "Invalid db_type" }, { status: 400 });
     }
-    const conn = await createDbConnection(name.trim(), db_type as DbType, connection_string.trim());
-    return NextResponse.json(conn, { status: 201 });
+    const conn = await createDbConnection(name.trim(), db_type as DbType, connection_string.trim(), {
+      ssh_enabled: Boolean(body.ssh_enabled),
+      ssh_host: body.ssh_host || null,
+      ssh_port: body.ssh_port ? Number(body.ssh_port) : null,
+      ssh_user: body.ssh_user || null,
+      ssh_auth_type: body.ssh_auth_type || null,
+      ssh_password: body.ssh_password || null,
+      ssh_private_key: body.ssh_private_key || null,
+      ssh_passphrase: body.ssh_passphrase || null,
+    });
+    // Don't return credentials in response
+    const { ssh_password: _p, ssh_private_key: _k, ssh_passphrase: _pp, ...safe } = conn;
+    void _p; void _k; void _pp;
+    return NextResponse.json(safe, { status: 201 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

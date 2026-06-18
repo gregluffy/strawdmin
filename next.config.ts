@@ -4,7 +4,7 @@ import pkg from "./package.json";
 const nextConfig: NextConfig = {
   output: "standalone",
   basePath: process.env.BASE_PATH ?? "",
-  serverExternalPackages: ["@libsql/client", "knex", "pg", "mysql2", "mssql"],
+  serverExternalPackages: ["@libsql/client", "knex", "pg", "mysql2", "mssql", "ssh2", "cpu-features"],
   allowedDevOrigins: ["10.0.9.15"],
   env: {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
