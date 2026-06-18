@@ -1,4 +1,6 @@
 import type { DbType, DbConnection } from "../types";
+import { ensureTunnel, closeTunnel, rewriteForTunnel, openTunnel } from "../ssh-tunnel";
+import type { SshConfig } from "../ssh-tunnel";
 
 export interface DbDriver {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -35,18 +37,36 @@ export function getDriver(conn: DbConnection): DbDriver {
 
   const type = conn.db_type as DbType;
   const connStr = conn.connection_string;
+
+  // Build a tunnel promise if SSH is enabled — drivers will await it before first query
+  let tunnelPromise: Promise<string> | null = null;
+  if (conn.ssh_enabled && conn.ssh_host && conn.ssh_user) {
+    const sshCfg: SshConfig = {
+      host: conn.ssh_host,
+      port: conn.ssh_port,
+      user: conn.ssh_user,
+      auth_type: conn.ssh_auth_type,
+      password: conn.ssh_password,
+      private_key: conn.ssh_private_key,
+      passphrase: conn.ssh_passphrase,
+    };
+    tunnelPromise = ensureTunnel(conn.id, sshCfg, type, connStr).then((h) =>
+      rewriteForTunnel(type, connStr, h.localPort)
+    );
+  }
+
   let driver: DbDriver;
 
   switch (type) {
     case "postgres":
-      driver = createPostgresDriver(connStr);
+      driver = createPostgresDriver(connStr, tunnelPromise);
       break;
     case "mysql":
     case "mariadb":
-      driver = createMysqlDriver(connStr);
+      driver = createMysqlDriver(connStr, tunnelPromise);
       break;
     case "mssql":
-      driver = createMssqlDriver(connStr);
+      driver = createMssqlDriver(connStr, tunnelPromise);
       break;
     case "sqlite":
       driver = createSqliteDriver(connStr);
@@ -65,75 +85,142 @@ export async function closeDriver(connId: number): Promise<void> {
     try { await driver.close(); } catch { /* ignore */ }
     driverCache.delete(connId);
   }
+  closeTunnel(connId);
 }
 
 export function createTempDriver(dbType: string, connStr: string): DbDriver {
   switch (dbType) {
-    case "postgres": return createPostgresDriver(connStr);
+    case "postgres": return createPostgresDriver(connStr, null);
     case "mysql":
-    case "mariadb": return createMysqlDriver(connStr);
-    case "mssql": return createMssqlDriver(connStr);
+    case "mariadb": return createMysqlDriver(connStr, null);
+    case "mssql": return createMssqlDriver(connStr, null);
     case "sqlite": return createSqliteDriver(connStr);
     default: throw new Error(`Unsupported db_type: ${dbType}`);
   }
 }
 
-function createPostgresDriver(connStr: string): DbDriver {
+export async function createTempDriverWithSsh(dbType: string, connStr: string, ssh: SshConfig): Promise<{ driver: DbDriver; closeTunnel: () => void }> {
+  const { host, port } = parseDbTargetForTemp(dbType, connStr);
+  const handle = await openTunnel(ssh, host, port);
+  const effectiveConnStr = rewriteForTunnel(dbType, connStr, handle.localPort);
+  const driver = createTempDriver(dbType, effectiveConnStr);
+  return { driver, closeTunnel: handle.close };
+}
+
+function parseDbTargetForTemp(dbType: string, connStr: string): { host: string; port: number } {
+  if (dbType === "postgres" || dbType === "mysql" || dbType === "mariadb") {
+    const url = new URL(connStr);
+    const defaultPort = dbType === "postgres" ? 5432 : 3306;
+    return { host: url.hostname, port: url.port ? parseInt(url.port, 10) : defaultPort };
+  }
+  if (dbType === "mssql") {
+    const m = connStr.match(/Server=([^,;\s]+)(?:,(\d+))?/i);
+    if (!m) throw new Error("Cannot parse MSSQL Server host from connection string");
+    return { host: m[1], port: m[2] ? parseInt(m[2], 10) : 1433 };
+  }
+  throw new Error("SSH tunneling is not supported for SQLite");
+}
+
+function createPostgresDriver(connStr: string, tunnelPromise: Promise<string> | null): DbDriver {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Pool } = require("pg");
-  const hasSSL = /sslmode=(?!disable)/i.test(connStr) || connStr.startsWith("https");
-  const pool = new Pool({
-    connectionString: connStr,
-    ...(hasSSL && { ssl: { rejectUnauthorized: false } }),
-  });
+
+  let poolPromise: Promise<ReturnType<typeof Pool>> | null = null;
+
+  const getPool = () => {
+    if (!poolPromise) {
+      poolPromise = (async () => {
+        const effectiveConnStr = tunnelPromise ? await tunnelPromise : connStr;
+        const hasSSL = /sslmode=(?!disable)/i.test(effectiveConnStr) || effectiveConnStr.startsWith("https");
+        return new Pool({
+          connectionString: effectiveConnStr,
+          ...(hasSSL && { ssl: { rejectUnauthorized: false } }),
+        });
+      })();
+    }
+    return poolPromise;
+  };
+
   return {
     dbType: "postgres",
     quote: (s) => `"${s}"`,
     placeholder: (i) => `$${i + 1}`,
     async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
+      const pool = await getPool();
       const result = await pool.query(sql, params);
       return result.rows as T[];
     },
-    async close() { await pool.end(); },
+    async close() {
+      if (poolPromise) {
+        const pool = await poolPromise.catch(() => null);
+        if (pool) await pool.end().catch(() => {});
+      }
+    },
   };
 }
 
-function createMysqlDriver(connStr: string): DbDriver {
+function createMysqlDriver(connStr: string, tunnelPromise: Promise<string> | null): DbDriver {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mysql = require("mysql2/promise");
-  const hasSSL = /ssl=true/i.test(connStr) || /sslmode=(?!disable)/i.test(connStr);
-  const uri = connStr.replace(/^mariadb:\/\//i, "mysql://");
-  const pool = mysql.createPool({ uri, ...(hasSSL && { ssl: { rejectUnauthorized: false } }) });
+
+  let poolPromise: Promise<ReturnType<typeof mysql.createPool>> | null = null;
+
+  const getPool = () => {
+    if (!poolPromise) {
+      poolPromise = (async () => {
+        const effectiveConnStr = tunnelPromise ? await tunnelPromise : connStr;
+        const hasSSL = /ssl=true/i.test(effectiveConnStr) || /sslmode=(?!disable)/i.test(effectiveConnStr);
+        const uri = effectiveConnStr.replace(/^mariadb:\/\//i, "mysql://");
+        return mysql.createPool({ uri, ...(hasSSL && { ssl: { rejectUnauthorized: false } }) });
+      })();
+    }
+    return poolPromise;
+  };
+
   return {
     dbType: "mysql",
     quote: (s) => `\`${s}\``,
     placeholder: () => "?",
     async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
+      const pool = await getPool();
       const [rows] = await pool.execute(sql, params);
       return rows as T[];
     },
-    async close() { await pool.end(); },
+    async close() {
+      if (poolPromise) {
+        const pool = await poolPromise.catch(() => null);
+        if (pool) await pool.end().catch(() => {});
+      }
+    },
   };
 }
 
-function createMssqlDriver(connStr: string): DbDriver {
+function createMssqlDriver(connStr: string, tunnelPromise: Promise<string> | null): DbDriver {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mssql = require("mssql");
-  let pool: typeof mssql.ConnectionPool | null = null;
-  const trustConn = /TrustServerCertificate/i.test(connStr)
-    ? connStr
-    : connStr.trimEnd().replace(/;?$/, ";TrustServerCertificate=true;Encrypt=true");
-  const getPool = async () => {
-    if (!pool) pool = await mssql.connect(trustConn);
-    return pool;
+
+  let poolPromise: Promise<typeof mssql.ConnectionPool> | null = null;
+
+  const getPool = () => {
+    if (!poolPromise) {
+      poolPromise = (async () => {
+        const effectiveConnStr = tunnelPromise ? await tunnelPromise : connStr;
+        const trustConn = /TrustServerCertificate/i.test(effectiveConnStr)
+          ? effectiveConnStr
+          : effectiveConnStr.trimEnd().replace(/;?$/, ";TrustServerCertificate=true;Encrypt=true");
+        return mssql.connect(trustConn);
+      })();
+    }
+    return poolPromise;
   };
+
   return {
     dbType: "mssql",
     quote: (s) => `[${s}]`,
     placeholder: (i) => `@p${i}`,
     async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
-      const p = await getPool();
-      const req = p.request();
+      const pool = await getPool();
+      const req = pool.request();
       if (params) {
         params.forEach((v, i) => req.input(`p${i}`, v));
         let paramSql = sql;
@@ -144,7 +231,9 @@ function createMssqlDriver(connStr: string): DbDriver {
       const result = await req.query(sql);
       return result.recordset as T[];
     },
-    async close() { await mssql.close(); },
+    async close() {
+      await mssql.close().catch(() => {});
+    },
   };
 }
 

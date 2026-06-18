@@ -6,6 +6,14 @@ export interface DbConnection {
   db_type: DbType;
   connection_string: string;
   created_at: string;
+  ssh_enabled?: boolean;
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_user?: string;
+  ssh_auth_type?: "password" | "key";
+  ssh_password?: string;
+  ssh_private_key?: string;
+  ssh_passphrase?: string;
 }
 
 export interface Column {
