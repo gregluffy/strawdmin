@@ -214,6 +214,140 @@ describe("deleteDbConnection", () => {
   });
 });
 
+// ── SSH fields ──────────────────────────────────────────────────────────────
+
+describe("createDbConnection — SSH fields", () => {
+  it("defaults ssh_enabled to false when no SSH config provided", async () => {
+    const conn = await createDbConnection("NoSSH", "postgres", "postgresql://localhost/test");
+    expect(conn.ssh_enabled).toBe(false);
+    expect(conn.ssh_host).toBeUndefined();
+    expect(conn.ssh_user).toBeUndefined();
+  });
+
+  it("persists SSH password auth fields", async () => {
+    const conn = await createDbConnection("WithSSH", "postgres", "postgresql://db.internal/prod", {
+      ssh_enabled: true,
+      ssh_host: "bastion.example.com",
+      ssh_port: 2222,
+      ssh_user: "deploy",
+      ssh_auth_type: "password",
+      ssh_password: "s3cr3t",
+    });
+    expect(conn.ssh_enabled).toBe(true);
+    expect(conn.ssh_host).toBe("bastion.example.com");
+    expect(conn.ssh_port).toBe(2222);
+    expect(conn.ssh_user).toBe("deploy");
+    expect(conn.ssh_auth_type).toBe("password");
+    expect(conn.ssh_password).toBe("s3cr3t");
+  });
+
+  it("persists SSH private key auth fields", async () => {
+    const conn = await createDbConnection("KeySSH", "mysql", "mysql://db.internal/mydb", {
+      ssh_enabled: true,
+      ssh_host: "jump.example.com",
+      ssh_port: 22,
+      ssh_user: "ubuntu",
+      ssh_auth_type: "key",
+      ssh_private_key: "-----BEGIN OPENSSH PRIVATE KEY-----\nfakekey\n-----END OPENSSH PRIVATE KEY-----",
+      ssh_passphrase: "myphrase",
+    });
+    expect(conn.ssh_auth_type).toBe("key");
+    expect(conn.ssh_private_key).toContain("BEGIN OPENSSH");
+    expect(conn.ssh_passphrase).toBe("myphrase");
+  });
+});
+
+describe("listDbConnections — SSH fields", () => {
+  it("includes SSH fields in list results", async () => {
+    await createDbConnection("WithSSH", "postgres", "postgresql://db.internal/prod", {
+      ssh_enabled: true,
+      ssh_host: "bastion.example.com",
+      ssh_user: "deploy",
+      ssh_auth_type: "password",
+      ssh_password: "s3cr3t",
+    });
+    const list = await listDbConnections();
+    expect(list[0].ssh_enabled).toBe(true);
+    expect(list[0].ssh_host).toBe("bastion.example.com");
+    expect(list[0].ssh_password).toBe("s3cr3t");
+  });
+});
+
+describe("getDbConnection — SSH fields", () => {
+  it("returns SSH fields for a specific connection", async () => {
+    const created = await createDbConnection("SSHConn", "postgres", "postgresql://db.internal/prod", {
+      ssh_enabled: true,
+      ssh_host: "bastion.example.com",
+      ssh_port: 22,
+      ssh_user: "ubuntu",
+      ssh_auth_type: "key",
+      ssh_private_key: "FAKE_PEM_KEY",
+    });
+    const fetched = await getDbConnection(created.id);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.ssh_enabled).toBe(true);
+    expect(fetched!.ssh_host).toBe("bastion.example.com");
+    expect(fetched!.ssh_private_key).toBe("FAKE_PEM_KEY");
+  });
+});
+
+describe("updateDbConnection — SSH fields", () => {
+  it("updates SSH host and user", async () => {
+    const conn = await createDbConnection("ToUpdate", "postgres", "postgresql://localhost/test", {
+      ssh_enabled: true,
+      ssh_host: "old-bastion.example.com",
+      ssh_user: "old-user",
+    });
+    await updateDbConnection(conn.id, { ssh_host: "new-bastion.example.com", ssh_user: "new-user" });
+    const updated = await getDbConnection(conn.id);
+    expect(updated!.ssh_host).toBe("new-bastion.example.com");
+    expect(updated!.ssh_user).toBe("new-user");
+  });
+
+  it("can enable SSH on an existing connection", async () => {
+    const conn = await createDbConnection("NoSSH", "postgres", "postgresql://localhost/test");
+    expect(conn.ssh_enabled).toBe(false);
+    await updateDbConnection(conn.id, { ssh_enabled: true, ssh_host: "bastion.example.com", ssh_user: "ubuntu" });
+    const updated = await getDbConnection(conn.id);
+    expect(updated!.ssh_enabled).toBe(true);
+  });
+
+  it("can disable SSH on an existing connection", async () => {
+    const conn = await createDbConnection("WithSSH", "postgres", "postgresql://localhost/test", {
+      ssh_enabled: true,
+      ssh_host: "bastion.example.com",
+      ssh_user: "ubuntu",
+    });
+    await updateDbConnection(conn.id, { ssh_enabled: false });
+    const updated = await getDbConnection(conn.id);
+    expect(updated!.ssh_enabled).toBe(false);
+  });
+
+  it("clears a credential when empty string is passed", async () => {
+    const conn = await createDbConnection("WithPwd", "postgres", "postgresql://localhost/test", {
+      ssh_enabled: true,
+      ssh_host: "bastion.example.com",
+      ssh_user: "ubuntu",
+      ssh_password: "oldpassword",
+    });
+    await updateDbConnection(conn.id, { ssh_password: "" });
+    const updated = await getDbConnection(conn.id);
+    expect(updated!.ssh_password).toBeUndefined();
+  });
+
+  it("does not touch credentials when they are omitted from the update", async () => {
+    const conn = await createDbConnection("WithPwd", "postgres", "postgresql://localhost/test", {
+      ssh_enabled: true,
+      ssh_host: "bastion.example.com",
+      ssh_user: "ubuntu",
+      ssh_password: "keepme",
+    });
+    await updateDbConnection(conn.id, { ssh_host: "new-bastion.example.com" });
+    const updated = await getDbConnection(conn.id);
+    expect(updated!.ssh_password).toBe("keepme");
+  });
+});
+
 // ── policies ────────────────────────────────────────────────────────────────
 
 describe("getUserTablePolicy — defaults", () => {

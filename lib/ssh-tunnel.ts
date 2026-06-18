@@ -21,7 +21,7 @@ export interface SshConfig {
 
 const tunnelCache = new Map<number, TunnelHandle>();
 
-function parseDbTarget(dbType: DbType, connectionString: string): { host: string; port: number } {
+export function parseDbTarget(dbType: DbType, connectionString: string): { host: string; port: number } {
   if (dbType === "postgres" || dbType === "mysql" || dbType === "mariadb") {
     const url = new URL(connectionString);
     const defaultPort = dbType === "postgres" ? 5432 : 3306;
