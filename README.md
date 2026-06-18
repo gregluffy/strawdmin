@@ -14,6 +14,9 @@ Supports **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server**, and **SQLite**.
 ### Multiple database connections
 Add and switch between multiple database connections from the dashboard header. Connection credentials are stored securely in the internal SQLite database. Includes a test-connection button so you can verify a connection string before saving.
 
+### SSH tunneling
+Connect to databases that are not publicly reachable by routing through an SSH jump server — just like DBeaver or TablePlus. Toggle the **SSH Tunnel** section when adding or editing a connection and fill in the bastion host, port, and username. Supports both password and private key (PEM) authentication.
+
 ### Table browser & CRUD
 Paginated table view with search and column sorting. Create, edit, duplicate, and delete rows. JSON columns get a Monaco editor.
 
@@ -85,7 +88,7 @@ Open [http://localhost:3000](http://localhost:3000), create your admin account o
 | `DATA_DIR` | no | Override for internal data directory (default: `./data`) |
 | `INTERNAL_DB_URL` | no | Override internal database URL (advanced usage) |
 
-> **Database connections** are managed from the dashboard, not via environment variables. After creating your admin account, use the database switcher in the header to add connections. See [Connection string formats](#connection-string-formats) below.
+> **Database connections** are managed from the dashboard, not via environment variables. After creating your admin account, use the database switcher in the header to add connections. See [Connection string formats](#connection-string-formats) below. For databases behind a firewall, use the built-in [SSH tunnel](#ssh-tunnel) support.
 
 ### Legacy env vars (migration)
 
@@ -111,6 +114,35 @@ Server=host,1433;Database=dbname;User Id=user;Password=pass;TrustServerCertifica
 # SQLite
 /path/to/database.db
 ```
+
+---
+
+## SSH tunnel
+
+For databases that are not directly reachable (e.g. behind a VPC, firewall, or bastion host), Strawdmin can establish an SSH tunnel before connecting.
+
+Enable it in the **Add / Edit Connection** modal by toggling **SSH Tunnel** and filling in:
+
+| Field | Description |
+|---|---|
+| SSH Host | Hostname or IP of the jump/bastion server |
+| Port | SSH port (default: 22) |
+| Username | SSH login username |
+| Auth type | **Password** or **Private key** (PEM) |
+| Private key | Paste the full PEM contents — `-----BEGIN OPENSSH PRIVATE KEY-----` … |
+| Passphrase | Optional passphrase for an encrypted private key |
+
+When SSH is enabled, set the **connection string** to the database address **as seen from the SSH server** — typically `localhost` (if the database runs on the same machine as the bastion) or an internal hostname/IP.
+
+```
+# Example: PostgreSQL on the same box as the bastion
+postgresql://dbuser:dbpass@localhost:5432/mydb
+
+# Example: MySQL on an internal host reachable only from the bastion
+mysql://dbuser:dbpass@db.internal:3306/mydb
+```
+
+Credentials (passwords and private keys) are stored in the internal SQLite database and are never returned via the API.
 
 ---
 

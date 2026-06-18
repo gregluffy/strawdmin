@@ -107,7 +107,29 @@ Uses `vi.useFakeTimers()` to control time, and `_resetForTesting()` (exported fr
 
 ---
 
-### `tests/db/internal-db.test.ts` — 41 tests
+### `tests/api/db-connections-test.test.ts` — 14 tests
+
+Tests the `POST /api/db-connections/test` route handler.
+
+All external dependencies are mocked: `@/lib/request-auth`, `@/lib/drivers`.
+
+| Scenario | What's asserted |
+|---|---|
+| Unauthenticated | 403 |
+| Non-admin user | 403 |
+| Missing `db_type` | 400 |
+| Missing `connection_string` | 400 |
+| SSH disabled — success | `createTempDriver` called; `{ ok: true }`; driver closed |
+| SSH disabled — query throws | `{ ok: false, error }`; driver still closed |
+| SSH enabled — success | `createTempDriverWithSsh` called with correct SSH config; `{ ok: true }`; driver and tunnel closed |
+| SSH enabled — query throws | `{ ok: false }`; both driver and tunnel still closed |
+| SSH enabled — missing host | `{ ok: false, error }` without calling `createTempDriverWithSsh` |
+| SSH enabled — missing user | `{ ok: false }` |
+| SSH key auth | `private_key` and `passphrase` forwarded to `createTempDriverWithSsh` |
+
+---
+
+### `tests/db/internal-db.test.ts` — 57 tests
 
 Integration tests against a real in-memory SQLite database. Exercises all business logic in `lib/internal-db.ts`.
 
@@ -128,6 +150,21 @@ Integration tests against a real in-memory SQLite database. Exercises all busine
 | `logAudit` + `getAuditLogs` | Stores and retrieves entries; filters by action, tableName, username (LIKE); pagination (`page`/`pageSize`); `changes` is deserialized from JSON (not a raw string) |
 | `exportAllSettings` + `restoreAllSettings` | Full round-trip (create user → add policies → export → reset → recreate user → restore → verify); returns `skipped_users` for unknown usernames |
 | `pruneStaleSettings` | Deletes settings for old `db_fingerprint` when a different connection string is activated |
+| `createDbConnection` SSH fields | SSH disabled by default; password auth fields persisted; key auth fields persisted |
+| `listDbConnections` SSH fields | SSH fields included in list results |
+| `getDbConnection` SSH fields | SSH fields returned for specific connection |
+| `updateDbConnection` SSH fields | Host/user updated; SSH can be enabled/disabled; empty credential string clears to null; omitted credentials are not touched |
+
+---
+
+### `tests/unit/ssh-tunnel.test.ts` — 21 tests
+
+Pure functions in `lib/ssh-tunnel.ts`. No setup, no SSH server required.
+
+| Function | What's tested |
+|---|---|
+| `rewriteForTunnel` | postgres — replaces host and port, preserves credentials/path/query params; no-port case; mysql — replaces and keeps scheme; mariadb — replaces and keeps `mariadb://` scheme; mssql — replaces `Server=host,port` and `Server=host` variants, preserves rest of string; sqlite — returns unchanged |
+| `parseDbTarget` | postgres — host and port extracted; defaults to 5432; mysql — defaults to 3306; mariadb — custom port; mssql — `Server=host,port` and `Server=host` variants; sqlite — throws |
 
 ---
 

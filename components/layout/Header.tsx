@@ -24,6 +24,11 @@ interface DbConn {
   db_type: string;
   connection_string?: string;
   is_active: boolean;
+  ssh_enabled?: boolean;
+  ssh_host?: string | null;
+  ssh_port?: number;
+  ssh_user?: string | null;
+  ssh_auth_type?: "password" | "key";
 }
 
 type DbType = "postgres" | "mysql" | "mariadb" | "mssql" | "sqlite";
@@ -289,9 +294,31 @@ interface FormState {
   name: string;
   db_type: DbType;
   connection_string: string;
+  ssh_enabled: boolean;
+  ssh_host: string;
+  ssh_port: string;
+  ssh_user: string;
+  ssh_auth_type: "password" | "key";
+  ssh_password: string;
+  ssh_private_key: string;
+  ssh_passphrase: string;
 }
 
-const EMPTY_FORM: FormState = { name: "", db_type: "postgres", connection_string: "" };
+const EMPTY_FORM: FormState = {
+  name: "",
+  db_type: "postgres",
+  connection_string: "",
+  ssh_enabled: false,
+  ssh_host: "",
+  ssh_port: "22",
+  ssh_user: "",
+  ssh_auth_type: "password",
+  ssh_password: "",
+  ssh_private_key: "",
+  ssh_passphrase: "",
+};
+
+const INPUT_CLS = "w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40";
 
 function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActivate }: ModalProps) {
   const [mode, setMode] = useState<FormMode>("list");
@@ -303,6 +330,11 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
 
+  function setF(patch: Partial<FormState>) {
+    setForm((f) => ({ ...f, ...patch }));
+    setTestResult(null);
+  }
+
   function openAdd() {
     setForm(EMPTY_FORM);
     setEditId(null);
@@ -312,11 +344,58 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
   }
 
   function openEdit(c: DbConn) {
-    setForm({ name: c.name, db_type: c.db_type as DbType, connection_string: c.connection_string ?? "" });
+    setForm({
+      name: c.name,
+      db_type: c.db_type as DbType,
+      connection_string: c.connection_string ?? "",
+      ssh_enabled: c.ssh_enabled ?? false,
+      ssh_host: c.ssh_host ?? "",
+      ssh_port: String(c.ssh_port ?? 22),
+      ssh_user: c.ssh_user ?? "",
+      ssh_auth_type: c.ssh_auth_type ?? "password",
+      ssh_password: "",
+      ssh_private_key: "",
+      ssh_passphrase: "",
+    });
     setEditId(c.id);
     setTestResult(null);
     setError(null);
     setMode("edit");
+  }
+
+  function buildTestBody() {
+    const body: Record<string, unknown> = { db_type: form.db_type, connection_string: form.connection_string };
+    if (form.ssh_enabled) {
+      body.ssh = {
+        enabled: true,
+        host: form.ssh_host,
+        port: parseInt(form.ssh_port, 10) || 22,
+        user: form.ssh_user,
+        auth_type: form.ssh_auth_type,
+        password: form.ssh_password || undefined,
+        private_key: form.ssh_private_key || undefined,
+        passphrase: form.ssh_passphrase || undefined,
+      };
+    }
+    return body;
+  }
+
+  function buildSaveBody() {
+    const body: Record<string, unknown> = {
+      name: form.name.trim(),
+      db_type: form.db_type,
+      connection_string: form.connection_string.trim(),
+      ssh_enabled: form.ssh_enabled,
+      ssh_host: form.ssh_host.trim() || null,
+      ssh_port: parseInt(form.ssh_port, 10) || 22,
+      ssh_user: form.ssh_user.trim() || null,
+      ssh_auth_type: form.ssh_auth_type,
+    };
+    // Only send credentials if filled — empty = keep existing on edit, clear on add
+    if (form.ssh_password) body.ssh_password = form.ssh_password;
+    if (form.ssh_private_key) body.ssh_private_key = form.ssh_private_key;
+    if (form.ssh_passphrase) body.ssh_passphrase = form.ssh_passphrase;
+    return body;
   }
 
   async function testConnection() {
@@ -326,10 +405,9 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
       const res = await fetch(`${basePath}/api/db-connections/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ db_type: form.db_type, connection_string: form.connection_string }),
+        body: JSON.stringify(buildTestBody()),
       });
-      const data = await res.json();
-      setTestResult(data);
+      setTestResult(await res.json());
     } catch {
       setTestResult({ ok: false, error: "Request failed" });
     } finally {
@@ -342,23 +420,19 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
       setError("Name and connection string are required.");
       return;
     }
+    if (form.ssh_enabled && (!form.ssh_host.trim() || !form.ssh_user.trim())) {
+      setError("SSH host and username are required when SSH tunnel is enabled.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      let res: Response;
-      if (mode === "add") {
-        res = await fetch(`${basePath}/api/db-connections`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        });
-      } else {
-        res = await fetch(`${basePath}/api/db-connections/${editId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        });
-      }
+      const url = mode === "add" ? `${basePath}/api/db-connections` : `${basePath}/api/db-connections/${editId}`;
+      const res = await fetch(url, {
+        method: mode === "add" ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildSaveBody()),
+      });
       if (!res.ok) {
         const d = await res.json();
         setError(d.error ?? "Failed to save.");
@@ -423,26 +497,19 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
                       <DbTypeIcon type={c.db_type} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-[var(--foreground)] truncate">{c.name}</p>
-                        <p className="text-xs text-[var(--muted-foreground)]">{DB_TYPE_LABELS[c.db_type] ?? c.db_type}</p>
+                        <p className="text-xs text-[var(--muted-foreground)]">
+                          {DB_TYPE_LABELS[c.db_type] ?? c.db_type}
+                          {c.ssh_enabled && <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-[var(--primary)]/10 text-[var(--primary)] font-medium">SSH</span>}
+                        </p>
                       </div>
                       {c.id === activeId && (
                         <span className="px-2 py-0.5 bg-[var(--primary)]/15 text-[var(--primary)] text-xs rounded-full font-medium shrink-0">Active</span>
                       )}
                       <div className="flex items-center gap-1 shrink-0">
                         {c.id !== activeId && (
-                          <button
-                            onClick={() => onActivate(c.id)}
-                            className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors"
-                          >
-                            Use
-                          </button>
+                          <button onClick={() => onActivate(c.id)} className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors">Use</button>
                         )}
-                        <button
-                          onClick={() => openEdit(c)}
-                          className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors"
-                        >
-                          Edit
-                        </button>
+                        <button onClick={() => openEdit(c)} className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors">Edit</button>
                         <button
                           onClick={() => deleteConn(c.id)}
                           disabled={deleting === c.id}
@@ -456,10 +523,7 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
                 </div>
               )}
               <div className="px-5 py-4 border-t border-[var(--border)]">
-                <button
-                  onClick={openAdd}
-                  className="w-full py-2 px-4 rounded-lg border-2 border-dashed border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] text-sm transition-colors"
-                >
+                <button onClick={openAdd} className="w-full py-2 px-4 rounded-lg border-2 border-dashed border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] text-sm transition-colors">
                   + Add new connection
                 </button>
               </div>
@@ -468,21 +532,12 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
             <div className="px-5 py-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Name</label>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. Production DB"
-                  className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40"
-                />
+                <input value={form.name} onChange={(e) => setF({ name: e.target.value })} placeholder="e.g. Production DB" className={INPUT_CLS} />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Database type</label>
-                <select
-                  value={form.db_type}
-                  onChange={(e) => { setForm((f) => ({ ...f, db_type: e.target.value as DbType })); setTestResult(null); }}
-                  className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40"
-                >
+                <select value={form.db_type} onChange={(e) => setF({ db_type: e.target.value as DbType })} className={INPUT_CLS}>
                   <option value="postgres">PostgreSQL</option>
                   <option value="mysql">MySQL</option>
                   <option value="mariadb">MariaDB</option>
@@ -495,15 +550,96 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
                 <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Connection string</label>
                 <textarea
                   value={form.connection_string}
-                  onChange={(e) => { setForm((f) => ({ ...f, connection_string: e.target.value })); setTestResult(null); }}
+                  onChange={(e) => setF({ connection_string: e.target.value })}
                   placeholder={DB_TYPE_EXAMPLES[form.db_type]}
                   rows={3}
-                  className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 resize-none"
+                  className={`${INPUT_CLS} font-mono resize-none`}
                 />
                 <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                  Example: <code className="font-mono">{DB_TYPE_EXAMPLES[form.db_type]}</code>
+                  {form.ssh_enabled
+                    ? "Use the database host/port as seen from the SSH server (e.g. localhost:5432 if DB is on the same machine)."
+                    : <>Example: <code className="font-mono">{DB_TYPE_EXAMPLES[form.db_type]}</code></>}
                 </p>
               </div>
+
+              {/* SSH Tunnel section */}
+              {form.db_type !== "sqlite" && (
+                <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setF({ ssh_enabled: !form.ssh_enabled })}
+                    className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-[var(--accent)] transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-base leading-none">🔒</span>
+                      <span className="text-sm font-medium text-[var(--foreground)]">SSH Tunnel</span>
+                    </div>
+                    <div className={`relative w-9 h-5 rounded-full transition-colors ${form.ssh_enabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/30"}`}>
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${form.ssh_enabled ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+                    </div>
+                  </button>
+
+                  {form.ssh_enabled && (
+                    <div className="px-3 pb-4 pt-3 space-y-3 border-t border-[var(--border)]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">SSH Host</label>
+                          <input value={form.ssh_host} onChange={(e) => setF({ ssh_host: e.target.value })} placeholder="bastion.example.com" className={INPUT_CLS} />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Port</label>
+                          <input value={form.ssh_port} onChange={(e) => setF({ ssh_port: e.target.value })} placeholder="22" className={INPUT_CLS} />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">SSH Username</label>
+                        <input value={form.ssh_user} onChange={(e) => setF({ ssh_user: e.target.value })} placeholder="ubuntu" className={INPUT_CLS} />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Authentication</label>
+                        <div className="flex gap-4">
+                          {(["password", "key"] as const).map((t) => (
+                            <label key={t} className="flex items-center gap-1.5 text-sm text-[var(--foreground)] cursor-pointer">
+                              <input type="radio" name="ssh_auth_type" value={t} checked={form.ssh_auth_type === t} onChange={() => setF({ ssh_auth_type: t })} className="accent-[var(--primary)]" />
+                              {t === "password" ? "Password" : "Private key"}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {form.ssh_auth_type === "password" ? (
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">SSH Password</label>
+                          <input type="password" value={form.ssh_password} onChange={(e) => setF({ ssh_password: e.target.value })} autoComplete="new-password" className={INPUT_CLS} />
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Private Key (PEM)</label>
+                            <textarea
+                              value={form.ssh_private_key}
+                              onChange={(e) => setF({ ssh_private_key: e.target.value })}
+                              placeholder={"-----BEGIN OPENSSH PRIVATE KEY-----\n..."}
+                              rows={4}
+                              className={`${INPUT_CLS} font-mono resize-none`}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Passphrase (optional)</label>
+                            <input type="password" value={form.ssh_passphrase} onChange={(e) => setF({ ssh_passphrase: e.target.value })} autoComplete="new-password" className={INPUT_CLS} />
+                          </div>
+                        </>
+                      )}
+
+                      {mode === "edit" && (
+                        <p className="text-xs text-[var(--muted-foreground)]">Leave credentials blank to keep existing values.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {error && (
                 <p className="text-sm text-[var(--destructive)] bg-[var(--destructive)]/10 px-3 py-2 rounded-lg">{error}</p>
