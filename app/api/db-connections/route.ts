@@ -20,12 +20,14 @@ export async function GET(req: NextRequest) {
         connection_string: user.role === "admin" ? c.connection_string : undefined,
         is_active: activeConn?.id === c.id,
         created_at: c.created_at,
-        // SSH config — never expose credentials
+        // SSH config — never expose credentials, only expose whether they exist
         ssh_enabled: c.ssh_enabled ?? false,
         ssh_host: user.role === "admin" ? (c.ssh_host ?? null) : undefined,
         ssh_port: user.role === "admin" ? (c.ssh_port ?? 22) : undefined,
         ssh_user: user.role === "admin" ? (c.ssh_user ?? null) : undefined,
         ssh_auth_type: user.role === "admin" ? (c.ssh_auth_type ?? "password") : undefined,
+        has_ssh_private_key: user.role === "admin" ? c.ssh_private_key != null : undefined,
+        has_ssh_password: user.role === "admin" ? c.ssh_password != null : undefined,
       })),
       active_id: activeConn?.id ?? null,
     });
