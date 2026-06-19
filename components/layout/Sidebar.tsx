@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import type { Schema } from "@/lib/types";
 import { formatSize } from "@/lib/format";
 import { basePath } from "@/lib/api-url";
+import { TableIcon, UsersIcon, ShareIcon, ArchiveIcon, ClipboardIcon } from "@/components/ui/icons";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -101,7 +103,7 @@ export function Sidebar() {
             href={`/dashboard/tables/${t.name}`}
             active={isActive(`/dashboard/tables/${t.name}`)}
             collapsed={!open}
-            icon="⊞"
+            icon={<TableIcon size={15} />}
             subtitle={t.sizeBytes != null ? formatSize(t.sizeBytes) : undefined}
           >
             {t.name}
@@ -116,16 +118,16 @@ export function Sidebar() {
       {/* Bottom links (admin only) */}
       {user?.role === "admin" && (
         <div className="border-t border-[var(--border)] py-3 px-2">
-          <NavLink href="/dashboard/users" active={isActive("/dashboard/users")} collapsed={!open} icon="👥">
+          <NavLink href="/dashboard/users" active={isActive("/dashboard/users")} collapsed={!open} icon={<UsersIcon size={15} />}>
             Users
           </NavLink>
-          <NavLink href="/dashboard/diagram" active={isActive("/dashboard/diagram")} collapsed={!open} icon="⬡">
+          <NavLink href="/dashboard/diagram" active={isActive("/dashboard/diagram")} collapsed={!open} icon={<ShareIcon size={15} />}>
             Diagram
           </NavLink>
-          <NavLink href="/dashboard/backups" active={isActive("/dashboard/backups")} collapsed={!open} icon="💾">
+          <NavLink href="/dashboard/backups" active={isActive("/dashboard/backups")} collapsed={!open} icon={<ArchiveIcon size={15} />}>
             Backups
           </NavLink>
-          <NavLink href="/dashboard/audit" active={isActive("/dashboard/audit")} collapsed={!open} icon="📋">
+          <NavLink href="/dashboard/audit" active={isActive("/dashboard/audit")} collapsed={!open} icon={<ClipboardIcon size={15} />}>
             Audit Log
           </NavLink>
         </div>
@@ -145,9 +147,9 @@ function NavLink({
   href: string;
   active: boolean;
   collapsed: boolean;
-  icon: string;
+  icon: ReactNode;
   subtitle?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Link
@@ -159,7 +161,7 @@ function NavLink({
           : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
       }`}
     >
-      <span className="shrink-0 text-base">{icon}</span>
+      <span className="shrink-0 flex items-center justify-center w-[18px] h-[18px]">{icon}</span>
       {!collapsed && (
         <span className="min-w-0 flex-1">
           <span className="block truncate font-mono text-sm">{children}</span>

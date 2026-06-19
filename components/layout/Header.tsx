@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { basePath } from "@/lib/api-url";
+import { HomeIcon, DatabaseIcon, SettingsIcon, PinIcon, LockIcon } from "@/components/ui/icons";
 
 interface User {
   id: number;
@@ -44,16 +45,12 @@ const DB_TYPE_LABELS: Record<string, string> = {
   sqlite: "SQLite",
 };
 
-const DB_TYPE_ICONS: Record<string, string> = {
-  postgres: "🐘",
-  mysql: "🐬",
-  mariadb: "🦭",
-  mssql: "🪟",
-  sqlite: "🗄️",
-};
-
 function DbTypeIcon({ type }: { type: string }) {
-  return <span title={DB_TYPE_LABELS[type] ?? type}>{DB_TYPE_ICONS[type] ?? "🗄️"}</span>;
+  return (
+    <span title={DB_TYPE_LABELS[type] ?? type}>
+      <DatabaseIcon size={15} className="shrink-0" />
+    </span>
+  );
 }
 
 export function Header() {
@@ -142,7 +139,7 @@ export function Header() {
       <header className="h-14 flex items-center justify-between px-6 border-b border-[var(--border)] bg-[var(--card)] shrink-0">
         <div className="flex items-center gap-2">
           <Link href="/dashboard" className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] text-sm font-medium transition-colors">
-            🏠 Dashboard
+            <HomeIcon size={14} className="shrink-0" /> Dashboard
           </Link>
 
           {/* DB switcher button */}
@@ -160,7 +157,7 @@ export function Header() {
               </>
             ) : (
               <>
-                <span>🗄️</span>
+                <DatabaseIcon size={15} className="shrink-0 text-[var(--muted-foreground)]" />
                 <span className="text-[var(--muted-foreground)]">No DB selected</span>
               </>
             )}
@@ -174,7 +171,7 @@ export function Header() {
               title="Manage database connections"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] text-sm transition-colors"
             >
-              ⚙️
+              <SettingsIcon size={14} />
             </button>
           )}
 
@@ -265,8 +262,10 @@ export function Header() {
                     <span className="flex-1 truncate">{c.name}</span>
                     <span
                       title={c.is_pinned ? "Default on login" : "Not pinned"}
-                      className={`text-xs shrink-0 transition-opacity ${c.is_pinned ? "opacity-100" : "opacity-20 grayscale"}`}
-                    >📌</span>
+                      className={`shrink-0 transition-all ${c.is_pinned ? "text-[var(--primary)] opacity-100" : "text-[var(--muted-foreground)] opacity-20"}`}
+                    >
+                      <PinIcon size={12} />
+                    </span>
                     <span className="text-xs text-[var(--muted-foreground)] shrink-0">{DB_TYPE_LABELS[c.db_type] ?? c.db_type}</span>
                     {c.is_active && <span className="text-[var(--primary)] text-xs">✓</span>}
                   </button>
@@ -544,13 +543,13 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
                         <button
                           onClick={() => { onPin(c.id); onChanged(); }}
                           title={c.is_pinned ? "Unpin — remove as login default" : "Pin — auto-select on login"}
-                          className={`px-2 py-1 text-xs rounded border transition-all ${
+                          className={`p-1 rounded border transition-all flex items-center justify-center ${
                             c.is_pinned
-                              ? "border-[var(--primary)]/50 bg-[var(--primary)]/10"
-                              : "border-[var(--border)] hover:bg-[var(--accent)] grayscale opacity-30 hover:opacity-60"
+                              ? "border-[var(--primary)]/50 bg-[var(--primary)]/10 text-[var(--primary)]"
+                              : "border-[var(--border)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] opacity-30 hover:opacity-60"
                           }`}
                         >
-                          📌
+                          <PinIcon size={12} />
                         </button>
                         <button onClick={() => openEdit(c)} className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors">Edit</button>
                         <button
@@ -614,7 +613,7 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
                     className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-[var(--accent)] transition-colors text-left"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-base leading-none">🔒</span>
+                      <LockIcon size={15} className="shrink-0 text-[var(--muted-foreground)]" />
                       <span className="text-sm font-medium text-[var(--foreground)]">SSH Tunnel</span>
                     </div>
                     <div className={`relative w-9 h-5 rounded-full transition-colors ${form.ssh_enabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/30"}`}>
