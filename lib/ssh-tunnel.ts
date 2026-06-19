@@ -20,6 +20,7 @@ export interface SshConfig {
 }
 
 const tunnelCache = new Map<number, TunnelHandle>();
+const tunnelOpeningCache = new Map<number, Promise<TunnelHandle>>();
 
 export function parseDbTarget(dbType: DbType, connectionString: string): { host: string; port: number } {
   if (dbType === "postgres" || dbType === "mysql" || dbType === "mariadb") {
@@ -78,6 +79,8 @@ export async function openTunnel(sshCfg: SshConfig, dbHost: string, dbPort: numb
         port: sshCfg.port ?? 22,
         username: sshCfg.user,
         readyTimeout: 20000,
+        keepaliveInterval: 10000,
+        keepaliveCountMax: 3,
       };
 
       if (sshCfg.auth_type === "key" && sshCfg.private_key) {
@@ -90,14 +93,20 @@ export async function openTunnel(sshCfg: SshConfig, dbHost: string, dbPort: numb
       sshClient.once("error", (err: Error) => { server.close(); reject(err); });
 
       sshClient.once("ready", () => {
-        resolve({
+        const handle: TunnelHandle = {
           localPort,
           close: () => {
             activeSockets.forEach((s) => s.destroy());
             server.close();
             sshClient.end();
           },
-        });
+        };
+
+        // When the SSH connection closes unexpectedly, tear down the local server
+        // and destroy any in-flight sockets so pool connections fail fast.
+        sshClient.once("close", () => { handle.close(); });
+
+        resolve(handle);
       });
 
       sshClient.connect(connectConfig);
@@ -105,12 +114,33 @@ export async function openTunnel(sshCfg: SshConfig, dbHost: string, dbPort: numb
   });
 }
 
-export async function ensureTunnel(connId: number, sshCfg: SshConfig, dbType: DbType, connectionString: string): Promise<TunnelHandle> {
+export async function ensureTunnel(connId: number, sshCfg: SshConfig, dbType: DbType, connectionString: string, onDrop?: () => void): Promise<TunnelHandle> {
   if (tunnelCache.has(connId)) return tunnelCache.get(connId)!;
+  // Deduplicate concurrent callers — only open one tunnel per connId at a time
+  if (tunnelOpeningCache.has(connId)) return tunnelOpeningCache.get(connId)!;
+
   const { host, port } = parseDbTarget(dbType, connectionString);
-  const handle = await openTunnel(sshCfg, host, port);
-  tunnelCache.set(connId, handle);
-  return handle;
+  const promise = openTunnel(sshCfg, host, port).then((handle) => {
+    tunnelCache.set(connId, handle);
+    tunnelOpeningCache.delete(connId);
+    // Wrap close so we evict the cache entry when the tunnel is torn down (planned or dropped)
+    const origClose = handle.close;
+    let closed = false;
+    handle.close = () => {
+      if (closed) return;
+      closed = true;
+      tunnelCache.delete(connId);
+      onDrop?.();
+      try { origClose(); } catch { /* ignore */ }
+    };
+    return handle;
+  }).catch((err) => {
+    tunnelOpeningCache.delete(connId);
+    throw err;
+  });
+
+  tunnelOpeningCache.set(connId, promise);
+  return promise;
 }
 
 export function closeTunnel(connId: number): void {
