@@ -94,9 +94,10 @@ function RelEndSymbol({
   const spread = 6;
   const forkLen = 10;
   const d = dir;
+  const gStyle = { stroke: color, strokeWidth: 1.5, fill: "none", strokeLinecap: "round" as const };
   if (isMany) {
     return (
-      <g stroke={color} strokeWidth={1.5} fill="none" strokeLinecap="round" opacity={0.85}>
+      <g style={gStyle} opacity={0.85}>
         <line x1={x} y1={y} x2={x + d * forkLen} y2={y - spread} />
         <line x1={x} y1={y} x2={x + d * forkLen} y2={y} />
         <line x1={x} y1={y} x2={x + d * forkLen} y2={y + spread} />
@@ -105,7 +106,7 @@ function RelEndSymbol({
     );
   }
   return (
-    <g stroke={color} strokeWidth={1.5} fill="none" strokeLinecap="round" opacity={0.85}>
+    <g style={gStyle} opacity={0.85}>
       <line x1={x + d * 4} y1={y - spread} x2={x + d * 4} y2={y + spread} />
     </g>
   );
@@ -439,7 +440,7 @@ export function SchemaDiagram({ schema, savedPositions }: { schema: Schema; save
         </span>
         <span className="flex items-center gap-1">
           <svg width="28" height="10" style={{ display: "inline-block", verticalAlign: "middle" }}>
-            <line x1="0" y1="5" x2="28" y2="5" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8" />
+            <line x1="0" y1="5" x2="28" y2="5" style={{ stroke: "var(--primary)" }} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8" />
           </svg>
           <span>1:N</span>
         </span>
@@ -492,7 +493,7 @@ export function SchemaDiagram({ schema, savedPositions }: { schema: Schema; save
                 <path
                   d={bezierD(fx, fy, tx, ty)}
                   fill="none"
-                  stroke={color}
+                  style={{ stroke: color }}
                   strokeWidth={1.5}
                   strokeDasharray={dashed ? "4 3" : undefined}
                   opacity={0.75}
