@@ -70,6 +70,8 @@ export function Header() {
   const [dbMenuPos, setDbMenuPos] = useState({ top: 0, left: 0 });
   const dbButtonRef = useRef<HTMLButtonElement>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [connectionsLoaded, setConnectionsLoaded] = useState(false);
+  const autoOpenedRef = useRef(false);
 
   const fetchConnections = useCallback(() => {
     fetch(`${basePath}/api/db-connections`)
@@ -77,9 +79,18 @@ export function Header() {
       .then((data) => {
         setConnections(data.connections ?? []);
         setActiveId(data.active_id ?? null);
+        setConnectionsLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => { setConnectionsLoaded(true); });
   }, []);
+
+  // Auto-open "Add connection" modal on first load when there are no connections
+  useEffect(() => {
+    if (connectionsLoaded && user?.role === "admin" && connections.length === 0 && !autoOpenedRef.current) {
+      autoOpenedRef.current = true;
+      setManageOpen(true);
+    }
+  }, [connectionsLoaded, user, connections.length]);
 
   useEffect(() => {
     fetch(`${basePath}/api/auth/me`).then((r) => r.json()).then(setUser).catch(() => {});

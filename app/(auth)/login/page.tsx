@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { basePath } from "@/lib/api-url";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -26,7 +24,7 @@ export default function LoginPage() {
         setError(data.error ?? "Login failed");
         return;
       }
-      router.push("/dashboard");
+      window.location.href = `${basePath}/dashboard`;
     } catch {
       setError("Network error");
     } finally {
