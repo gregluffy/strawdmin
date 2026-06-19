@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { updateUser, deleteUser } from "@/lib/internal-db";
+import { getRequestUser } from "@/lib/request-auth";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function PUT(req: NextRequest, { params }: Params) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   const { id } = await params;
   try {
     const { password, role } = await req.json();
@@ -25,17 +30,23 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!ok) return NextResponse.json({ error: "User not found" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(req: NextRequest, { params }: Params) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   const { id } = await params;
   try {
     const ok = await deleteUser(parseInt(id));
     if (!ok) return NextResponse.json({ error: "User not found" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

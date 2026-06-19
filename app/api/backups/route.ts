@@ -5,6 +5,7 @@ import { introspect } from "@/lib/introspect";
 import { getDriver } from "@/lib/drivers";
 import { serializeRow } from "@/lib/sql";
 import { getActiveConnection } from "@/lib/active-connection";
+import { getRequestUser } from "@/lib/request-auth";
 import type { BackupMeta } from "@/lib/types";
 
 function getBackupDir(): string {
@@ -15,6 +16,10 @@ function getBackupDir(): string {
 }
 
 export async function GET(req: NextRequest) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   const conn = await getActiveConnection(req);
   if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
 
@@ -29,13 +34,18 @@ export async function GET(req: NextRequest) {
     backups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return NextResponse.json(backups);
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
 const BACKUP_ROW_LIMIT = 100_000;
 
 export async function POST(req: NextRequest) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   const conn = await getActiveConnection(req);
   if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
 
@@ -85,6 +95,7 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

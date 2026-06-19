@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const conn = await getActiveConnection(req);
   if (conn) clearSchemaCache(conn.id);
   else clearSchemaCache();

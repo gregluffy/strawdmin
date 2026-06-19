@@ -2,7 +2,8 @@ import { SignJWT, jwtVerify } from "jose";
 import type { JwtPayload } from "./types";
 
 function getSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET ?? "default-dev-secret-change-in-production";
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error("JWT_SECRET environment variable is required");
   return new TextEncoder().encode(secret);
 }
 
