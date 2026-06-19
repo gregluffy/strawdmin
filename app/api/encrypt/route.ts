@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hashSHA512, hashSHA512Standard, hashSHA256 } from "@/lib/crypto";
+import { getRequestUser } from "@/lib/request-auth";
 
 export async function POST(req: NextRequest) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const { algorithm, value, salt } = await req.json();
     if (!algorithm || typeof value !== "string") {
@@ -14,6 +18,7 @@ export async function POST(req: NextRequest) {
     const hash = algorithm === "SHA512" ? hashSHA512(value, s) : algorithm === "SHA512_STD" ? hashSHA512Standard(value, s) : hashSHA256(value, s);
     return NextResponse.json({ hash });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

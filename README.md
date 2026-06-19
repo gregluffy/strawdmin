@@ -59,8 +59,13 @@ Every login, create, update, and delete is recorded. Filter by action type, tabl
 
 ![Audit log](assets/auditlogs.png)
 
+### Database diagram
+Visualise your schema as an interactive ER diagram. Tables are rendered with all columns, PK/FK badges, and relationship lines between foreign keys and their referenced primary keys. Pan by dragging the canvas, zoom with the scroll wheel or the +/− buttons, drag individual tables to reposition them, fit everything into view with one click, and export the whole diagram as a PNG.
+
+![Database diagram](assets/diagram.png)
+
 ### Other
-- **User management** — multiple users with `admin` / `user` roles
+- **User management** — multiple users with `admin` / `user` roles; pin a database connection so it is automatically selected for every user on login
 - **Dark / light theme**
 - **Sub-path deployment** — run behind a reverse proxy at any base path without rebuilding
 

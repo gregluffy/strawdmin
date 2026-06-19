@@ -306,8 +306,8 @@ async function introspectSqlite(driver: any): Promise<SchemaTable[]> {
   const tableMap = new Map<string, Column[]>();
 
   for (const { name: tableName } of tablesResult) {
-    const cols = (await driver.query(`PRAGMA table_info("${tableName}")`)) as SqliteCol[];
-    const fks = (await driver.query(`PRAGMA foreign_key_list("${tableName}")`)) as SqliteFk[];
+    const cols = (await driver.query(`PRAGMA table_info(${driver.quote(tableName)})`)) as SqliteCol[];
+    const fks = (await driver.query(`PRAGMA foreign_key_list(${driver.quote(tableName)})`)) as SqliteFk[];
 
     const fkMap = new Map<string, { table: string; column: string }>();
     for (const fk of fks) {

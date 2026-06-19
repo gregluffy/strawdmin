@@ -123,6 +123,13 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
     window_start INTEGER NOT NULL,
     locked_until INTEGER NOT NULL DEFAULT 0
   )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS diagram_positions (
+    db_fingerprint TEXT NOT NULL,
+    table_name     TEXT NOT NULL,
+    x              REAL NOT NULL,
+    y              REAL NOT NULL,
+    PRIMARY KEY (db_fingerprint, table_name)
+  )`);
 }
 
 export async function db(): Promise<LibsqlClient> {
@@ -183,6 +190,24 @@ export async function setPinnedDbConnection(id: number | null): Promise<void> {
   await c.execute("UPDATE db_connections SET is_pinned = 0");
   if (id !== null) {
     await c.execute({ sql: "UPDATE db_connections SET is_pinned = 1 WHERE id = ?", args: [id] });
+  }
+}
+
+export async function getDiagramPositions(connId: number): Promise<Record<string, { x: number; y: number }>> {
+  const c = await db();
+  const fp = getDbFingerprint(connId);
+  const rows = await c.execute({ sql: "SELECT table_name, x, y FROM diagram_positions WHERE db_fingerprint = ?", args: [fp] });
+  const out: Record<string, { x: number; y: number }> = {};
+  for (const r of rows.rows) out[String(r.table_name)] = { x: Number(r.x), y: Number(r.y) };
+  return out;
+}
+
+export async function saveDiagramPositions(connId: number, positions: Record<string, { x: number; y: number }>): Promise<void> {
+  const c = await db();
+  const fp = getDbFingerprint(connId);
+  await c.execute({ sql: "DELETE FROM diagram_positions WHERE db_fingerprint = ?", args: [fp] });
+  for (const [table_name, { x, y }] of Object.entries(positions)) {
+    await c.execute({ sql: "INSERT INTO diagram_positions (db_fingerprint, table_name, x, y) VALUES (?, ?, ?, ?)", args: [fp, table_name, x, y] });
   }
 }
 

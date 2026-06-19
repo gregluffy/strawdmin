@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 vi.mock("@/lib/internal-db", () => ({
   getUserByUsername: vi.fn().mockResolvedValue(null),
   logAudit: vi.fn().mockResolvedValue(undefined),
+  getPinnedDbConnection: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("@/lib/auth", () => ({

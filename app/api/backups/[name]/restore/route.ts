@@ -4,12 +4,13 @@ import path from "path";
 import { getDriver } from "@/lib/drivers";
 import { introspect } from "@/lib/introspect";
 import { getActiveConnection } from "@/lib/active-connection";
+import { getRequestUser } from "@/lib/request-auth";
 import type { BackupFile, Column, SchemaTable } from "@/lib/types";
 import { deserializeBinary } from "@/lib/sql";
 
-function getBackupPath(name: string): string {
+function getBackupDir(): string {
   const base = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
-  return path.join(base, "backups", name);
+  return path.resolve(path.join(base, "backups"));
 }
 
 function topologicalSort(tables: SchemaTable[]): SchemaTable[] {
@@ -64,17 +65,26 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ name: string }> }
 ) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   const { name } = await params;
 
   const conn = await getActiveConnection(req);
   if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
 
   try {
-    if (!name.endsWith(".json") || name.includes("/") || name.includes("..")) {
+    if (!name.endsWith(".json")) {
       return NextResponse.json({ error: "Invalid backup name" }, { status: 400 });
     }
 
-    const filePath = getBackupPath(name);
+    const backupDir = getBackupDir();
+    const filePath = path.resolve(path.join(backupDir, name));
+    if (!filePath.startsWith(backupDir + path.sep)) {
+      return NextResponse.json({ error: "Invalid backup name" }, { status: 400 });
+    }
+
     if (!fs.existsSync(filePath)) {
       return NextResponse.json({ error: "Backup not found" }, { status: 404 });
     }
@@ -151,6 +161,6 @@ export async function POST(
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

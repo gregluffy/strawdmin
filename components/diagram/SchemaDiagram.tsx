@@ -2,12 +2,18 @@
 
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import type { Schema, SchemaTable } from "@/lib/types";
+import { basePath } from "@/lib/api-url";
 
 const TABLE_W = 240;
 const HEADER_H = 40;
 const ROW_H = 26;
 const MIN_ZOOM = 0.08;
 const MAX_ZOOM = 4;
+
+// Visual colors per relation type
+const COLOR_1N = "var(--primary)";  // indigo — 1:N (most common)
+const COLOR_11 = "#10b981";         // green — 1:1
+const COLOR_NN = "#f59e0b";         // amber — N:N
 
 function tableHeight(t: SchemaTable) {
   return HEADER_H + t.columns.length * ROW_H;
@@ -27,28 +33,43 @@ function initialLayout(tables: SchemaTable[]): Record<string, { x: number; y: nu
   return out;
 }
 
+type RelType = "one-to-one" | "one-to-many" | "many-to-many";
+
 interface Relation {
   fromTable: string;
   fromColIdx: number;
   toTable: string;
   toColIdx: number;
-  label: string; // "tableName.colName → refTable.refCol"
+  relType: RelType;
+  label: string;
+}
+
+function isJunctionTable(t: SchemaTable): boolean {
+  const fkCols = t.columns.filter((c) => c.fk);
+  const uniqueTargets = new Set(fkCols.map((c) => c.fk!.table));
+  if (fkCols.length < 2 || uniqueTargets.size < 2) return false;
+  // Junction tables have at most 1 non-FK, non-auto-increment column (e.g. created_at)
+  const dataCols = t.columns.filter((c) => !c.fk && !c.isAutoIncrement);
+  return dataCols.length <= 1;
 }
 
 function buildRelations(tables: SchemaTable[]): Relation[] {
   const rels: Relation[] = [];
   for (const t of tables) {
+    const junction = isJunctionTable(t);
     t.columns.forEach((c, ci) => {
       if (!c.fk) return;
       const toTable = tables.find((x) => x.name === c.fk!.table);
       if (!toTable) return;
       const toColIdx = toTable.columns.findIndex((x) => x.name === c.fk!.column);
       if (toColIdx < 0) return;
+      const relType: RelType = c.isPrimary ? "one-to-one" : junction ? "many-to-many" : "one-to-many";
       rels.push({
         fromTable: t.name,
         fromColIdx: ci,
         toTable: c.fk.table,
         toColIdx,
+        relType,
         label: `${t.name}.${c.name} → ${c.fk.table}.${c.fk.column}`,
       });
     });
@@ -64,6 +85,66 @@ function bezierD(fx: number, fy: number, tx: number, ty: number): string {
   return `M ${fx} ${fy} C ${c1x} ${fy} ${c2x} ${ty} ${tx} ${ty}`;
 }
 
+// Crow's foot or single bar at a path endpoint — drawn inline in SVG
+function RelEndSymbol({
+  x, y, isMany, dir, color,
+}: {
+  x: number; y: number; isMany: boolean; dir: number; color: string;
+}) {
+  const spread = 6;
+  const d = dir;
+  const gStyle = { stroke: color, strokeWidth: 1.5, fill: "none", strokeLinecap: "round" as const };
+  if (isMany) {
+    // Three tines spread at the table edge, converge toward the line; mandatory bar sits between tines and convergence
+    const tipX = x + d * 2;
+    const barX = x + d * 8;
+    const convX = x + d * 14;
+    return (
+      <g style={gStyle} opacity={0.85}>
+        <line x1={tipX} y1={y - spread} x2={convX} y2={y} />
+        <line x1={tipX} y1={y} x2={convX} y2={y} />
+        <line x1={tipX} y1={y + spread} x2={convX} y2={y} />
+        <line x1={barX} y1={y - spread} x2={barX} y2={y + spread} />
+      </g>
+    );
+  }
+  // One: double perpendicular bar (mandatory-one symbol)
+  return (
+    <g style={gStyle} opacity={0.85}>
+      <line x1={x + d * 3} y1={y - spread} x2={x + d * 3} y2={y + spread} />
+      <line x1={x + d * 8} y1={y - spread} x2={x + d * 8} y2={y + spread} />
+    </g>
+  );
+}
+
+// Same symbols for canvas PNG export
+function drawRelEnd(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  isMany: boolean, dir: number, color: string
+) {
+  const spread = 6;
+  const d = dir;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  if (isMany) {
+    const tipX = x + d * 2;
+    const barX = x + d * 8;
+    const convX = x + d * 14;
+    ctx.moveTo(tipX, y - spread); ctx.lineTo(convX, y);
+    ctx.moveTo(tipX, y); ctx.lineTo(convX, y);
+    ctx.moveTo(tipX, y + spread); ctx.lineTo(convX, y);
+    ctx.moveTo(barX, y - spread); ctx.lineTo(barX, y + spread);
+  } else {
+    ctx.moveTo(x + d * 3, y - spread); ctx.lineTo(x + d * 3, y + spread);
+    ctx.moveTo(x + d * 8, y - spread); ctx.lineTo(x + d * 8, y + spread);
+  }
+  ctx.stroke();
+}
+
 // Light-theme colors for PNG export (CSS vars don't serialize)
 const EXPORT_C = {
   bg: "#f8fafc",
@@ -76,21 +157,40 @@ const EXPORT_C = {
   text: "#1e293b",
   muted: "#64748b",
   rowAlt: "#f1f5f9",
-  line: "#6366f1",
+  line1n: "#6366f1",  // indigo — 1:N
+  line11: "#10b981",  // green — 1:1
+  linenn: "#f59e0b",  // amber — N:N
 };
 
-export function SchemaDiagram({ schema }: { schema: Schema }) {
+function relExportColor(relType: RelType): string {
+  if (relType === "one-to-one") return EXPORT_C.line11;
+  if (relType === "many-to-many") return EXPORT_C.linenn;
+  return EXPORT_C.line1n;
+}
+
+type Positions = Record<string, { x: number; y: number }>;
+
+export function SchemaDiagram({ schema, savedPositions }: { schema: Schema; savedPositions?: Positions }) {
   const tables = schema.tables;
   const relations = useMemo(() => buildRelations(tables), [tables]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const [positions, setPositions] = useState(() => initialLayout(tables));
+  const [positions, setPositions] = useState<Positions>(() => {
+    const layout = initialLayout(tables);
+    if (!savedPositions || Object.keys(savedPositions).length === 0) return layout;
+    const merged: Positions = {};
+    for (const t of tables) {
+      merged[t.name] = savedPositions[t.name] ?? layout[t.name];
+    }
+    return merged;
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 20, y: 20 });
 
-  // Mirrors of state for use in event handlers (avoids stale closure re-attachment)
   const liveRef = useRef({ positions, zoom, pan });
   liveRef.current = { positions, zoom, pan };
 
@@ -206,45 +306,50 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
       }
 
     // Relations
-    ctx.strokeStyle = EXPORT_C.line; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.globalAlpha = 0.7;
     for (const rel of relations) {
-      const fp = positions[rel.fromTable]; const tp = positions[rel.toTable]; if (!fp || !tp) continue;
+      const fp = positions[rel.fromTable]; const tp = positions[rel.toTable];
+      if (!fp || !tp) continue;
       const fy = fp.y + HEADER_H + rel.fromColIdx * ROW_H + ROW_H / 2;
       const ty = tp.y + HEADER_H + rel.toColIdx * ROW_H + ROW_H / 2;
       const fromRight = fp.x + TABLE_W / 2 < tp.x + TABLE_W / 2;
       const fx = fromRight ? fp.x + TABLE_W : fp.x;
       const tx = fromRight ? tp.x : tp.x + TABLE_W;
-      const cp = Math.abs(tx - fx) * 0.5 + 20;
-      ctx.beginPath(); ctx.moveTo(fx, fy);
-      ctx.bezierCurveTo(fx + (fromRight ? cp : -cp), fy, tx - (fromRight ? cp : -cp), ty, tx, ty);
+      const fromDir = fromRight ? 1 : -1;
+      const toDir = fromRight ? -1 : 1;
+      const color = relExportColor(rel.relType);
+      const dashed = rel.relType === "one-to-many";
+      const fromIsMany = rel.relType !== "one-to-one";
+      const toIsMany = rel.relType === "many-to-many";
+
+      const fxOff = fromIsMany ? 14 : 8;
+      const txOff = toIsMany ? 14 : 8;
+      const fxP = fx + fromDir * fxOff;
+      const txP = tx + toDir * txOff;
+      const cp = Math.max(Math.abs(txP - fxP) * 0.5 + 20, 30);
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.75;
+      ctx.setLineDash(dashed ? [4, 3] : []);
+      ctx.beginPath(); ctx.moveTo(fxP, fy);
+      ctx.bezierCurveTo(fxP + (fromRight ? cp : -cp), fy, txP - (fromRight ? cp : -cp), ty, txP, ty);
       ctx.stroke();
-      // Arrowhead
-      const ang = Math.atan2(ty - fy, tx - fx);
-      ctx.setLineDash([]); ctx.fillStyle = EXPORT_C.line;
-      ctx.beginPath(); ctx.moveTo(tx, ty);
-      ctx.lineTo(tx - 8 * Math.cos(ang - 0.4), ty - 8 * Math.sin(ang - 0.4));
-      ctx.lineTo(tx - 8 * Math.cos(ang + 0.4), ty - 8 * Math.sin(ang + 0.4));
-      ctx.closePath(); ctx.fill(); ctx.setLineDash([4, 3]);
+      ctx.setLineDash([]); ctx.globalAlpha = 0.85;
+      drawRelEnd(ctx, fx, fy, fromIsMany, fromDir, color);
+      drawRelEnd(ctx, tx, ty, toIsMany, toDir, color);
     }
-    ctx.globalAlpha = 1; ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
 
     // Tables
     for (const t of tables) {
       const p = positions[t.name]; if (!p) continue;
       const th = tableHeight(t);
-      // Shadow
       ctx.fillStyle = "rgba(0,0,0,0.07)";
       roundRect(ctx, p.x + 3, p.y + 3, TABLE_W, th, 8); ctx.fill();
-      // Card
       ctx.fillStyle = EXPORT_C.card; ctx.strokeStyle = EXPORT_C.border; ctx.lineWidth = 1;
       roundRect(ctx, p.x, p.y, TABLE_W, th, 8); ctx.fill(); ctx.stroke();
-      // Header
       ctx.fillStyle = EXPORT_C.header;
       roundRect(ctx, p.x, p.y, TABLE_W, HEADER_H, [8, 8, 0, 0]); ctx.fill();
       ctx.fillStyle = EXPORT_C.headerText; ctx.font = "bold 13px monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(ellipsis(t.name, 22), p.x + TABLE_W / 2, p.y + HEADER_H / 2, TABLE_W - 16);
-      // Columns
       for (let ci = 0; ci < t.columns.length; ci++) {
         const c = t.columns[ci];
         const cy = p.y + HEADER_H + ci * ROW_H;
@@ -268,6 +373,29 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
     link.click();
   }, [tables, positions, relations, schema.dbName]);
 
+  const savePositions = useCallback(async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await fetch(`${basePath}/api/diagram-positions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(positions),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  }, [positions]);
+
+  const toolbarButtons = [
+    { label: "+", title: "Zoom in",       fn: () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.2)) },
+    { label: "−", title: "Zoom out",      fn: () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.2)) },
+    { label: "⊡", title: "Fit to screen", fn: fitScreen },
+    { label: "↓", title: "Export PNG",    fn: exportPng },
+  ];
+
   return (
     <div
       ref={containerRef}
@@ -282,12 +410,7 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
     >
       {/* Toolbar */}
       <div className="absolute top-3 right-3 z-10 flex flex-col gap-1.5">
-        {([
-          { label: "+", title: "Zoom in", fn: () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.2)) },
-          { label: "−", title: "Zoom out", fn: () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.2)) },
-          { label: "⊡", title: "Fit to screen", fn: fitScreen },
-          { label: "↓", title: "Export PNG", fn: exportPng },
-        ] as const).map((btn) => (
+        {toolbarButtons.map((btn) => (
           <button
             key={btn.title}
             onClick={btn.fn}
@@ -297,6 +420,18 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
             {btn.label}
           </button>
         ))}
+        <button
+          onClick={savePositions}
+          disabled={saving}
+          title="Save positions"
+          className={`w-8 h-8 rounded border text-sm flex items-center justify-center shadow-sm transition-colors disabled:opacity-40 ${
+            saved
+              ? "bg-green-500/15 border-green-500/40 text-green-600 dark:text-green-400"
+              : "bg-[var(--card)] border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)]"
+          }`}
+        >
+          {saving ? "…" : saved ? "✓" : "💾"}
+        </button>
       </div>
 
       {/* Zoom badge */}
@@ -315,20 +450,27 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
           <span>Foreign key</span>
         </span>
         <span className="flex items-center gap-1">
-          <span
-            style={{ display: "inline-block", width: 20, height: 2, background: "var(--primary)", opacity: 0.75, verticalAlign: "middle" }}
-          />
-          <span>Relation</span>
+          <svg width="28" height="10" style={{ display: "inline-block", verticalAlign: "middle" }}>
+            <line x1="0" y1="5" x2="28" y2="5" style={{ stroke: "var(--primary)" }} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8" />
+          </svg>
+          <span>1:N</span>
+        </span>
+        <span className="flex items-center gap-1">
+          <svg width="28" height="10" style={{ display: "inline-block", verticalAlign: "middle" }}>
+            <line x1="0" y1="5" x2="28" y2="5" stroke="#10b981" strokeWidth="1.5" opacity="0.8" />
+          </svg>
+          <span>1:1</span>
+        </span>
+        <span className="flex items-center gap-1">
+          <svg width="28" height="10" style={{ display: "inline-block", verticalAlign: "middle" }}>
+            <line x1="0" y1="5" x2="28" y2="5" stroke="#f59e0b" strokeWidth="1.5" opacity="0.8" />
+          </svg>
+          <span>N:N</span>
         </span>
         <span>Drag tables · Scroll to zoom</span>
       </div>
 
       <svg ref={svgRef} width="100%" height="100%">
-        <defs>
-          <marker id="dia-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <path d="M0,0 L8,3 L0,6 Z" style={{ fill: "var(--primary)" }} opacity={0.8} />
-          </marker>
-        </defs>
         <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
           {/* Relation lines — drawn under tables */}
           {relations.map((rel, i) => {
@@ -340,25 +482,45 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
             const fromRight = fp.x + TABLE_W / 2 < tp.x + TABLE_W / 2;
             const fx = fromRight ? fp.x + TABLE_W : fp.x;
             const tx = fromRight ? tp.x : tp.x + TABLE_W;
+            const fromDir = fromRight ? 1 : -1;
+            const toDir = fromRight ? -1 : 1;
+
+            const color = rel.relType === "one-to-one" ? COLOR_11
+                        : rel.relType === "many-to-many" ? COLOR_NN
+                        : COLOR_1N;
+            const dashed = rel.relType === "one-to-many";
+            const fromIsMany = rel.relType !== "one-to-one";
+            const toIsMany = rel.relType === "many-to-many";
+
+            const typeLabel = rel.relType === "one-to-one" ? "1:1"
+                            : rel.relType === "many-to-many" ? "N:N" : "1:N";
+
+            // Shorten path so it starts/ends at the symbol convergence/outer-bar, not the table edge
+            const fxOff = fromIsMany ? 14 : 8;
+            const txOff = toIsMany ? 14 : 8;
+            const fxP = fx + fromDir * fxOff;
+            const txP = tx + toDir * txOff;
+            const cpAdj = Math.max(Math.abs(txP - fxP) * 0.5 + 20, 30);
+            const pathDAdj = `M ${fxP} ${fy} C ${fxP + (fromRight ? cpAdj : -cpAdj)} ${fy} ${txP - (fromRight ? cpAdj : -cpAdj)} ${ty} ${txP} ${ty}`;
+
             return (
               <g key={i}>
-                {/* Invisible wider hit area for tooltip */}
-                <title>{rel.label}</title>
+                <title>{rel.label} ({typeLabel})</title>
+                {/* Invisible wider hit area for tooltip (covers full range including symbols) */}
+                <path d={bezierD(fx, fy, tx, ty)} fill="none" stroke="transparent" strokeWidth={10} />
+                {/* Relation line (shortened to not overlap symbols) */}
                 <path
-                  d={bezierD(fx, fy, tx, ty)}
+                  d={pathDAdj}
                   fill="none"
-                  stroke="transparent"
-                  strokeWidth={10}
-                />
-                <path
-                  d={bezierD(fx, fy, tx, ty)}
-                  fill="none"
-                  style={{ stroke: "var(--primary)" }}
+                  style={{ stroke: color }}
                   strokeWidth={1.5}
-                  strokeDasharray="4 3"
+                  strokeDasharray={dashed ? "4 3" : undefined}
                   opacity={0.75}
-                  markerEnd="url(#dia-arrow)"
                 />
+                {/* FK side (from) end symbol */}
+                <RelEndSymbol x={fx} y={fy} isMany={fromIsMany} dir={fromDir} color={color} />
+                {/* PK side (to) end symbol */}
+                <RelEndSymbol x={tx} y={ty} isMany={toIsMany} dir={toDir} color={color} />
               </g>
             );
           })}
@@ -369,15 +531,10 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
             const th = tableHeight(t);
             return (
               <g key={t.name} transform={`translate(${p.x},${p.y})`} style={{ cursor: "grab" }}>
-                {/* Shadow */}
                 <rect x={3} y={3} width={TABLE_W} height={th} rx={7} style={{ fill: "rgba(0,0,0,0.09)" }} />
-                {/* Card body */}
                 <rect x={0} y={0} width={TABLE_W} height={th} rx={7} style={{ fill: "var(--card)", stroke: "var(--border)" }} strokeWidth={1} />
-                {/* Header background */}
                 <rect x={0} y={0} width={TABLE_W} height={HEADER_H} rx={7} style={{ fill: "var(--primary)" }} />
-                {/* Flatten bottom corners of header */}
                 <rect x={0} y={HEADER_H - 8} width={TABLE_W} height={8} style={{ fill: "var(--primary)" }} />
-                {/* Table name */}
                 <text
                   x={TABLE_W / 2}
                   y={HEADER_H / 2 + 1}
@@ -388,7 +545,6 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
                   {ellipsis(t.name, 22)}
                 </text>
 
-                {/* Columns */}
                 {t.columns.map((c, ci) => {
                   const cy = HEADER_H + ci * ROW_H;
                   return (
@@ -397,7 +553,6 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
                         <rect x={1} y={cy} width={TABLE_W - 2} height={ROW_H} style={{ fill: "var(--muted)" }} opacity={0.4} />
                       )}
                       <line x1={1} y1={cy} x2={TABLE_W - 1} y2={cy} style={{ stroke: "var(--border)" }} strokeWidth={0.5} />
-                      {/* PK / FK badge */}
                       {(c.isPrimary || c.fk) && (
                         <text
                           x={9}
@@ -413,7 +568,6 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
                           {c.isPrimary ? "PK" : "FK"}
                         </text>
                       )}
-                      {/* Column name */}
                       <text
                         x={30}
                         y={cy + ROW_H / 2 + 1}
@@ -427,7 +581,6 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
                       >
                         {ellipsis(c.name, 14)}
                       </text>
-                      {/* Column type */}
                       <text
                         x={TABLE_W - 8}
                         y={cy + ROW_H / 2 + 1}
@@ -437,7 +590,6 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
                       >
                         {ellipsis(c.type, 12)}
                       </text>
-                      {/* Nullable dot */}
                       {c.nullable && (
                         <circle
                           cx={TABLE_W - 5}
@@ -469,7 +621,6 @@ function ellipsis(s: string, max: number) {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
-// Canvas helper — polyfills roundRect for environments that lack it
 function roundRect(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, w: number, h: number,

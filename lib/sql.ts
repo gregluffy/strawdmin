@@ -1,8 +1,8 @@
 export function quoteIdentifier(dbType: string): (s: string) => string {
   const t = dbType.trim().toLowerCase();
-  if (t === "mssql") return (s) => `[${s}]`;
-  if (t === "mysql" || t === "mariadb") return (s) => `\`${s}\``;
-  return (s) => `"${s}"`;
+  if (t === "mssql") return (s) => `[${s.replace(/]/g, "]]")}]`;
+  if (t === "mysql" || t === "mariadb") return (s) => `\`${s.replace(/`/g, "``")}\``;
+  return (s) => `"${s.replace(/"/g, '""')}"`;
 }
 
 export function placeholder(dbType: string, i: number): string {

@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDriver } from "@/lib/drivers";
 import { getTable } from "@/lib/introspect";
 import { getActiveConnection } from "@/lib/active-connection";
+import { getRequestUser } from "@/lib/request-auth";
 
 export async function GET(req: NextRequest) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { searchParams } = req.nextUrl;
   const refTable = searchParams.get("refTable");
   const field = searchParams.get("field");
@@ -42,6 +46,7 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
