@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { getUserByUsername, logAudit } from "@/lib/internal-db";
+import { getUserByUsername, logAudit, getPinnedDbConnection } from "@/lib/internal-db";
 import { signToken } from "@/lib/auth";
 import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess } from "@/lib/login-limiter";
 
@@ -42,13 +42,25 @@ export async function POST(req: NextRequest) {
     logAudit({ userId: user.id, username: user.username, action: "LOGIN", ip }).catch(() => {});
 
     const response = NextResponse.json({ user: { id: user.id, username: user.username, role: user.role } });
+    const isSecure = process.env.SECURE_COOKIES !== "false";
     response.cookies.set("auth_token", token, {
       httpOnly: true,
-      secure: process.env.SECURE_COOKIES !== "false" && process.env.NODE_ENV === "production",
+      secure: isSecure && process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7,
       path: "/",
     });
+    // Auto-select the pinned database on login
+    const pinned = await getPinnedDbConnection();
+    if (pinned) {
+      response.cookies.set("active_db_id", String(pinned.id), {
+        httpOnly: false,
+        secure: isSecure,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 365,
+      });
+    }
     return response;
   } catch (err) {
     console.error(err);

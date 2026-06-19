@@ -24,6 +24,7 @@ interface DbConn {
   db_type: string;
   connection_string?: string;
   is_active: boolean;
+  is_pinned: boolean;
   ssh_enabled?: boolean;
   ssh_host?: string | null;
   ssh_port?: number;
@@ -112,6 +113,11 @@ export function Header() {
       setDbMenuPos({ top: rect.bottom + 4, left: rect.left });
     }
     setDbMenuOpen((o) => !o);
+  }
+
+  async function togglePin(id: number) {
+    await fetch(`${basePath}/api/db-connections/${id}/pin`, { method: "POST" });
+    fetchConnections();
   }
 
   async function activateConnection(id: number) {
@@ -257,6 +263,9 @@ export function Header() {
                   >
                     <DbTypeIcon type={c.db_type} />
                     <span className="flex-1 truncate">{c.name}</span>
+                    {c.is_pinned && (
+                      <span title="Default on login" className="text-xs shrink-0 opacity-70">📌</span>
+                    )}
                     <span className="text-xs text-[var(--muted-foreground)] shrink-0">{DB_TYPE_LABELS[c.db_type] ?? c.db_type}</span>
                     {c.is_active && <span className="text-[var(--primary)] text-xs">✓</span>}
                   </button>
@@ -285,6 +294,7 @@ export function Header() {
           onClose={() => setManageOpen(false)}
           onChanged={() => { fetchConnections(); }}
           onActivate={activateConnection}
+          onPin={togglePin}
         />
       )}
     </>
@@ -299,6 +309,7 @@ interface ModalProps {
   onClose: () => void;
   onChanged: () => void;
   onActivate: (id: number) => void;
+  onPin: (id: number) => void;
 }
 
 type FormMode = "list" | "add" | "edit";
@@ -333,7 +344,7 @@ const EMPTY_FORM: FormState = {
 
 const INPUT_CLS = "w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40";
 
-function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActivate }: ModalProps) {
+function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActivate, onPin }: ModalProps) {
   const [mode, setMode] = useState<FormMode>("list");
   const [editId, setEditId] = useState<number | null>(null);
   const [editHasSavedKey, setEditHasSavedKey] = useState(false);
@@ -529,6 +540,17 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
                         {c.id !== activeId && (
                           <button onClick={() => onActivate(c.id)} className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors">Use</button>
                         )}
+                        <button
+                          onClick={() => { onPin(c.id); onChanged(); }}
+                          title={c.is_pinned ? "Unpin — remove as login default" : "Pin — auto-select on login"}
+                          className={`px-2 py-1 text-xs rounded border transition-colors ${
+                            c.is_pinned
+                              ? "border-[var(--primary)]/50 bg-[var(--primary)]/10 text-[var(--primary)]"
+                              : "border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--accent)]"
+                          }`}
+                        >
+                          📌
+                        </button>
                         <button onClick={() => openEdit(c)} className="px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors">Edit</button>
                         <button
                           onClick={() => deleteConn(c.id)}

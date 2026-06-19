@@ -13,16 +13,123 @@ function tableHeight(t: SchemaTable) {
   return HEADER_H + t.columns.length * ROW_H;
 }
 
-function initialLayout(tables: SchemaTable[]): Record<string, { x: number; y: number }> {
+function forceLayout(tables: SchemaTable[], rels: Relation[]): Record<string, { x: number; y: number }> {
   const n = tables.length;
+  if (n === 0) return {};
+  if (n === 1) return { [tables[0].name]: { x: 40, y: 40 } };
+
+  // Start from a grid with small deterministic offsets to break symmetry
   const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
   const maxH = tables.reduce((m, t) => Math.max(m, tableHeight(t)), HEADER_H + ROW_H);
+  const px = new Float64Array(n);
+  const py = new Float64Array(n);
+  tables.forEach((_, i) => {
+    px[i] = 40 + (i % cols) * (TABLE_W + 130) + (i % 3) * 18;
+    py[i] = 40 + Math.floor(i / cols) * (maxH + 110) + (i % 2) * 14;
+  });
+
+  const tableIdx = new Map<string, number>();
+  tables.forEach((t, i) => tableIdx.set(t.name, i));
+
+  // Build deduplicated edge list (one spring per table-pair regardless of how many FK cols connect them)
+  const seen = new Set<string>();
+  const edges: [number, number][] = [];
+  for (const r of rels) {
+    const fi = tableIdx.get(r.fromTable), ti = tableIdx.get(r.toTable);
+    if (fi === undefined || ti === undefined || fi === ti) continue;
+    const key = `${Math.min(fi, ti)}-${Math.max(fi, ti)}`;
+    if (!seen.has(key)) { seen.add(key); edges.push([fi, ti]); }
+  }
+
+  const fx = new Float64Array(n);
+  const fy = new Float64Array(n);
+
+  const REP = 260000;           // repulsion constant between every pair
+  const IDEAL = TABLE_W + 200;  // ideal centre-centre distance for linked tables (~440 px)
+  const SPRING = 0.07;          // spring stiffness
+  const GRAV = 0.003;           // gravity toward initial centroid (prevents drift)
+
+  // Centroid of initial grid (gravity anchor)
+  let cx = 0, cy = 0;
+  for (let i = 0; i < n; i++) { cx += px[i]; cy += py[i]; }
+  cx /= n; cy /= n;
+
+  // Fewer iterations for large schemas to stay under ~60 ms
+  const iters = n <= 25 ? 350 : n <= 50 ? 220 : n <= 80 ? 130 : 70;
+
+  for (let iter = 0; iter < iters; iter++) {
+    const cool = Math.max(0.12, 1 - iter / iters);
+    fx.fill(0); fy.fill(0);
+
+    // Coulomb repulsion — every pair
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        let dx = px[j] - px[i], dy = py[j] - py[i];
+        const d2 = dx * dx + dy * dy + 1;
+        const d = Math.sqrt(d2);
+        const f = REP / d2;
+        dx /= d; dy /= d;
+        fx[i] -= f * dx; fy[i] -= f * dy;
+        fx[j] += f * dx; fy[j] += f * dy;
+      }
+    }
+
+    // Hooke spring — FK-linked pairs
+    for (const [fi, ti] of edges) {
+      let dx = px[ti] - px[fi], dy = py[ti] - py[fi];
+      const d = Math.sqrt(dx * dx + dy * dy) + 0.1;
+      const f = (d - IDEAL) * SPRING;
+      dx /= d; dy /= d;
+      fx[fi] += f * dx; fy[fi] += f * dy;
+      fx[ti] -= f * dx; fy[ti] -= f * dy;
+    }
+
+    // Gravity toward centroid
+    for (let i = 0; i < n; i++) {
+      fx[i] += (cx - px[i]) * GRAV;
+      fy[i] += (cy - py[i]) * GRAV;
+    }
+
+    // Apply with temperature-scaled clamping
+    const mm = 55 * cool;
+    for (let i = 0; i < n; i++) {
+      px[i] += Math.max(-mm, Math.min(mm, fx[i] * cool));
+      py[i] += Math.max(-mm, Math.min(mm, fy[i] * cool));
+    }
+  }
+
+  // Overlap resolution — push any overlapping tables apart
+  const GAP = 28;
+  for (let iter = 0; iter < 80; iter++) {
+    let any = false;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const hi = tableHeight(tables[i]), hj = tableHeight(tables[j]);
+        const ox = Math.min(px[i] + TABLE_W + GAP - px[j], px[j] + TABLE_W + GAP - px[i]);
+        const oy = Math.min(py[i] + hi + GAP - py[j], py[j] + hj + GAP - py[i]);
+        if (ox > 0 && oy > 0) {
+          const push = (ox <= oy ? ox : oy) / 2;
+          if (ox <= oy) {
+            if (px[i] < px[j]) { px[i] -= push; px[j] += push; }
+            else { px[i] += push; px[j] -= push; }
+          } else {
+            if (py[i] < py[j]) { py[i] -= push; py[j] += push; }
+            else { py[i] += push; py[j] -= push; }
+          }
+          any = true;
+        }
+      }
+    }
+    if (!any) break;
+  }
+
+  // Normalise to positive coordinates with 40 px padding
+  let minX = Infinity, minY = Infinity;
+  for (let i = 0; i < n; i++) { minX = Math.min(minX, px[i]); minY = Math.min(minY, py[i]); }
+
   const out: Record<string, { x: number; y: number }> = {};
   tables.forEach((t, i) => {
-    out[t.name] = {
-      x: 40 + (i % cols) * (TABLE_W + 100),
-      y: 40 + Math.floor(i / cols) * (maxH + 80),
-    };
+    out[t.name] = { x: Math.round(px[i] - minX + 40), y: Math.round(py[i] - minY + 40) };
   });
   return out;
 }
@@ -86,7 +193,7 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const [positions, setPositions] = useState(() => initialLayout(tables));
+  const [positions, setPositions] = useState(() => forceLayout(tables, buildRelations(tables)));
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 20, y: 20 });
 
