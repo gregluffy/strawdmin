@@ -263,9 +263,10 @@ export function Header() {
                   >
                     <DbTypeIcon type={c.db_type} />
                     <span className="flex-1 truncate">{c.name}</span>
-                    {c.is_pinned && (
-                      <span title="Default on login" className="text-xs shrink-0 opacity-70">📌</span>
-                    )}
+                    <span
+                      title={c.is_pinned ? "Default on login" : "Not pinned"}
+                      className={`text-xs shrink-0 transition-opacity ${c.is_pinned ? "opacity-100" : "opacity-20 grayscale"}`}
+                    >📌</span>
                     <span className="text-xs text-[var(--muted-foreground)] shrink-0">{DB_TYPE_LABELS[c.db_type] ?? c.db_type}</span>
                     {c.is_active && <span className="text-[var(--primary)] text-xs">✓</span>}
                   </button>
@@ -543,10 +544,10 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
                         <button
                           onClick={() => { onPin(c.id); onChanged(); }}
                           title={c.is_pinned ? "Unpin — remove as login default" : "Pin — auto-select on login"}
-                          className={`px-2 py-1 text-xs rounded border transition-colors ${
+                          className={`px-2 py-1 text-xs rounded border transition-all ${
                             c.is_pinned
-                              ? "border-[var(--primary)]/50 bg-[var(--primary)]/10 text-[var(--primary)]"
-                              : "border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--accent)]"
+                              ? "border-[var(--primary)]/50 bg-[var(--primary)]/10"
+                              : "border-[var(--border)] hover:bg-[var(--accent)] grayscale opacity-30 hover:opacity-60"
                           }`}
                         >
                           📌
