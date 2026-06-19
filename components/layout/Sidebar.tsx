@@ -119,6 +119,9 @@ export function Sidebar() {
           <NavLink href="/dashboard/users" active={isActive("/dashboard/users")} collapsed={!open} icon="👥">
             Users
           </NavLink>
+          <NavLink href="/dashboard/diagram" active={isActive("/dashboard/diagram")} collapsed={!open} icon="⬡">
+            Diagram
+          </NavLink>
           <NavLink href="/dashboard/backups" active={isActive("/dashboard/backups")} collapsed={!open} icon="💾">
             Backups
           </NavLink>
