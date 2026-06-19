@@ -6,6 +6,7 @@ export interface DbConnection {
   db_type: DbType;
   connection_string: string;
   created_at: string;
+  is_pinned?: boolean;
   ssh_enabled?: boolean;
   ssh_host?: string;
   ssh_port?: number;

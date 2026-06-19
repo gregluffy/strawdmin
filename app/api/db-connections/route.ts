@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
         db_type: c.db_type,
         connection_string: user.role === "admin" ? c.connection_string : undefined,
         is_active: activeConn?.id === c.id,
+        is_pinned: c.is_pinned ?? false,
         created_at: c.created_at,
         // SSH config — never expose credentials, only expose whether they exist
         ssh_enabled: c.ssh_enabled ?? false,

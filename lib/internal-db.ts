@@ -57,6 +57,7 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
     ["ssh_password", "TEXT"],
     ["ssh_private_key", "TEXT"],
     ["ssh_passphrase", "TEXT"],
+    ["is_pinned", "INTEGER NOT NULL DEFAULT 0"],
   ] as [string, string][]) {
     try { await db.execute(`ALTER TABLE db_connections ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
   }
@@ -143,6 +144,7 @@ function rowToDbConnection(r: Record<string, unknown>): DbConnection {
     db_type: String(r.db_type) as DbType,
     connection_string: String(r.connection_string),
     created_at: String(r.created_at),
+    is_pinned: Boolean(Number(r.is_pinned ?? 0)),
     ssh_enabled: r.ssh_enabled ? Boolean(Number(r.ssh_enabled)) : false,
     ssh_host: r.ssh_host != null ? String(r.ssh_host) : undefined,
     ssh_port: r.ssh_port != null ? Number(r.ssh_port) : undefined,
@@ -154,17 +156,34 @@ function rowToDbConnection(r: Record<string, unknown>): DbConnection {
   };
 }
 
+const CONN_COLS = "id, name, db_type, connection_string, created_at, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_password, ssh_private_key, ssh_passphrase, is_pinned";
+
 export async function listDbConnections(): Promise<DbConnection[]> {
   const c = await db();
-  const rows = await c.execute("SELECT id, name, db_type, connection_string, created_at, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_password, ssh_private_key, ssh_passphrase FROM db_connections ORDER BY id");
+  const rows = await c.execute(`SELECT ${CONN_COLS} FROM db_connections ORDER BY id`);
   return rows.rows.map(rowToDbConnection);
 }
 
 export async function getDbConnection(id: number): Promise<DbConnection | null> {
   const c = await db();
-  const rows = await c.execute({ sql: "SELECT id, name, db_type, connection_string, created_at, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_password, ssh_private_key, ssh_passphrase FROM db_connections WHERE id = ?", args: [id] });
+  const rows = await c.execute({ sql: `SELECT ${CONN_COLS} FROM db_connections WHERE id = ?`, args: [id] });
   if (rows.rows.length === 0) return null;
   return rowToDbConnection(rows.rows[0]);
+}
+
+export async function getPinnedDbConnection(): Promise<DbConnection | null> {
+  const c = await db();
+  const rows = await c.execute(`SELECT ${CONN_COLS} FROM db_connections WHERE is_pinned = 1 LIMIT 1`);
+  if (rows.rows.length === 0) return null;
+  return rowToDbConnection(rows.rows[0]);
+}
+
+export async function setPinnedDbConnection(id: number | null): Promise<void> {
+  const c = await db();
+  await c.execute("UPDATE db_connections SET is_pinned = 0");
+  if (id !== null) {
+    await c.execute({ sql: "UPDATE db_connections SET is_pinned = 1 WHERE id = ?", args: [id] });
+  }
 }
 
 export interface SshSettings {
@@ -201,7 +220,7 @@ export async function createDbConnection(
       ssh?.ssh_passphrase ?? null,
     ],
   });
-  const rows = await c.execute({ sql: "SELECT id, name, db_type, connection_string, created_at, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth_type, ssh_password, ssh_private_key, ssh_passphrase FROM db_connections WHERE name = ? AND created_at = ?", args: [name, created_at] });
+  const rows = await c.execute({ sql: `SELECT ${CONN_COLS} FROM db_connections WHERE name = ? AND created_at = ?`, args: [name, created_at] });
   return rowToDbConnection(rows.rows[rows.rows.length - 1]);
 }
 
