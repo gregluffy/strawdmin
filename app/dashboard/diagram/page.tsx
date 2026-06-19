@@ -2,6 +2,7 @@ import { getServerActiveConnection } from "@/lib/server-connection";
 import { verifyToken } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { introspect } from "@/lib/introspect";
+import { getDiagramPositions } from "@/lib/internal-db";
 import { SchemaDiagram } from "@/components/diagram/SchemaDiagram";
 import { redirect, notFound } from "next/navigation";
 
@@ -14,7 +15,10 @@ export default async function DiagramPage() {
   const conn = await getServerActiveConnection();
   if (!conn) notFound();
 
-  const schema = await introspect(conn);
+  const [schema, savedPositions] = await Promise.all([
+    introspect(conn),
+    getDiagramPositions(conn.id),
+  ]);
 
   return (
     // Counteract the `p-6` applied by the dashboard layout's <main>, so the
@@ -30,7 +34,7 @@ export default async function DiagramPage() {
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <SchemaDiagram schema={schema} />
+        <SchemaDiagram schema={schema} savedPositions={savedPositions} />
       </div>
     </div>
   );

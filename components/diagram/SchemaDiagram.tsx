@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import type { Schema, SchemaTable } from "@/lib/types";
+import { basePath } from "@/lib/api-url";
 
 const TABLE_W = 240;
 const HEADER_H = 40;
@@ -79,14 +80,27 @@ const EXPORT_C = {
   line: "#6366f1",
 };
 
-export function SchemaDiagram({ schema }: { schema: Schema }) {
+type Positions = Record<string, { x: number; y: number }>;
+
+export function SchemaDiagram({ schema, savedPositions }: { schema: Schema; savedPositions?: Positions }) {
   const tables = schema.tables;
   const relations = useMemo(() => buildRelations(tables), [tables]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const [positions, setPositions] = useState(() => initialLayout(tables));
+  const [positions, setPositions] = useState<Positions>(() => {
+    const layout = initialLayout(tables);
+    if (!savedPositions || Object.keys(savedPositions).length === 0) return layout;
+    // Use saved position for known tables; fall back to grid placement for new ones
+    const merged: Positions = {};
+    for (const t of tables) {
+      merged[t.name] = savedPositions[t.name] ?? layout[t.name];
+    }
+    return merged;
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 20, y: 20 });
 
@@ -268,6 +282,29 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
     link.click();
   }, [tables, positions, relations, schema.dbName]);
 
+  const savePositions = useCallback(async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await fetch(`${basePath}/api/diagram-positions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(positions),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  }, [positions]);
+
+  const toolbarButtons = [
+    { label: "+", title: "Zoom in",      fn: () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.2)) },
+    { label: "−", title: "Zoom out",     fn: () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.2)) },
+    { label: "⊡", title: "Fit to screen", fn: fitScreen },
+    { label: "↓", title: "Export PNG",   fn: exportPng },
+  ];
+
   return (
     <div
       ref={containerRef}
@@ -282,12 +319,7 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
     >
       {/* Toolbar */}
       <div className="absolute top-3 right-3 z-10 flex flex-col gap-1.5">
-        {([
-          { label: "+", title: "Zoom in", fn: () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.2)) },
-          { label: "−", title: "Zoom out", fn: () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.2)) },
-          { label: "⊡", title: "Fit to screen", fn: fitScreen },
-          { label: "↓", title: "Export PNG", fn: exportPng },
-        ] as const).map((btn) => (
+        {toolbarButtons.map((btn) => (
           <button
             key={btn.title}
             onClick={btn.fn}
@@ -297,6 +329,18 @@ export function SchemaDiagram({ schema }: { schema: Schema }) {
             {btn.label}
           </button>
         ))}
+        <button
+          onClick={savePositions}
+          disabled={saving}
+          title="Save positions"
+          className={`w-8 h-8 rounded border text-sm flex items-center justify-center shadow-sm transition-colors disabled:opacity-40 ${
+            saved
+              ? "bg-green-500/15 border-green-500/40 text-green-600 dark:text-green-400"
+              : "bg-[var(--card)] border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)]"
+          }`}
+        >
+          {saving ? "…" : saved ? "✓" : "💾"}
+        </button>
       </div>
 
       {/* Zoom badge */}
