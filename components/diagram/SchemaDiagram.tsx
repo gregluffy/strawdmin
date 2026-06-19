@@ -92,22 +92,27 @@ function RelEndSymbol({
   x: number; y: number; isMany: boolean; dir: number; color: string;
 }) {
   const spread = 6;
-  const forkLen = 10;
   const d = dir;
   const gStyle = { stroke: color, strokeWidth: 1.5, fill: "none", strokeLinecap: "round" as const };
   if (isMany) {
+    // Three tines spread at the table edge, converge toward the line; mandatory bar sits between tines and convergence
+    const tipX = x + d * 2;
+    const barX = x + d * 8;
+    const convX = x + d * 14;
     return (
       <g style={gStyle} opacity={0.85}>
-        <line x1={x} y1={y} x2={x + d * forkLen} y2={y - spread} />
-        <line x1={x} y1={y} x2={x + d * forkLen} y2={y} />
-        <line x1={x} y1={y} x2={x + d * forkLen} y2={y + spread} />
-        <line x1={x + d * (forkLen + 4)} y1={y - spread} x2={x + d * (forkLen + 4)} y2={y + spread} />
+        <line x1={tipX} y1={y - spread} x2={convX} y2={y} />
+        <line x1={tipX} y1={y} x2={convX} y2={y} />
+        <line x1={tipX} y1={y + spread} x2={convX} y2={y} />
+        <line x1={barX} y1={y - spread} x2={barX} y2={y + spread} />
       </g>
     );
   }
+  // One: double perpendicular bar (mandatory-one symbol)
   return (
     <g style={gStyle} opacity={0.85}>
-      <line x1={x + d * 4} y1={y - spread} x2={x + d * 4} y2={y + spread} />
+      <line x1={x + d * 3} y1={y - spread} x2={x + d * 3} y2={y + spread} />
+      <line x1={x + d * 8} y1={y - spread} x2={x + d * 8} y2={y + spread} />
     </g>
   );
 }
@@ -119,21 +124,23 @@ function drawRelEnd(
   isMany: boolean, dir: number, color: string
 ) {
   const spread = 6;
-  const forkLen = 10;
+  const d = dir;
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
   ctx.lineCap = "round";
   ctx.setLineDash([]);
   ctx.beginPath();
   if (isMany) {
-    ctx.moveTo(x, y); ctx.lineTo(x + dir * forkLen, y - spread);
-    ctx.moveTo(x, y); ctx.lineTo(x + dir * forkLen, y);
-    ctx.moveTo(x, y); ctx.lineTo(x + dir * forkLen, y + spread);
-    ctx.moveTo(x + dir * (forkLen + 4), y - spread);
-    ctx.lineTo(x + dir * (forkLen + 4), y + spread);
+    const tipX = x + d * 2;
+    const barX = x + d * 8;
+    const convX = x + d * 14;
+    ctx.moveTo(tipX, y - spread); ctx.lineTo(convX, y);
+    ctx.moveTo(tipX, y); ctx.lineTo(convX, y);
+    ctx.moveTo(tipX, y + spread); ctx.lineTo(convX, y);
+    ctx.moveTo(barX, y - spread); ctx.lineTo(barX, y + spread);
   } else {
-    ctx.moveTo(x + dir * 4, y - spread);
-    ctx.lineTo(x + dir * 4, y + spread);
+    ctx.moveTo(x + d * 3, y - spread); ctx.lineTo(x + d * 3, y + spread);
+    ctx.moveTo(x + d * 8, y - spread); ctx.lineTo(x + d * 8, y + spread);
   }
   ctx.stroke();
 }
@@ -314,11 +321,15 @@ export function SchemaDiagram({ schema, savedPositions }: { schema: Schema; save
       const fromIsMany = rel.relType !== "one-to-one";
       const toIsMany = rel.relType === "many-to-many";
 
-      const cp = Math.abs(tx - fx) * 0.5 + 20;
+      const fxOff = fromIsMany ? 14 : 8;
+      const txOff = toIsMany ? 14 : 8;
+      const fxP = fx + fromDir * fxOff;
+      const txP = tx + toDir * txOff;
+      const cp = Math.max(Math.abs(txP - fxP) * 0.5 + 20, 30);
       ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.75;
       ctx.setLineDash(dashed ? [4, 3] : []);
-      ctx.beginPath(); ctx.moveTo(fx, fy);
-      ctx.bezierCurveTo(fx + (fromRight ? cp : -cp), fy, tx - (fromRight ? cp : -cp), ty, tx, ty);
+      ctx.beginPath(); ctx.moveTo(fxP, fy);
+      ctx.bezierCurveTo(fxP + (fromRight ? cp : -cp), fy, txP - (fromRight ? cp : -cp), ty, txP, ty);
       ctx.stroke();
       ctx.setLineDash([]); ctx.globalAlpha = 0.85;
       drawRelEnd(ctx, fx, fy, fromIsMany, fromDir, color);
@@ -484,14 +495,22 @@ export function SchemaDiagram({ schema, savedPositions }: { schema: Schema; save
             const typeLabel = rel.relType === "one-to-one" ? "1:1"
                             : rel.relType === "many-to-many" ? "N:N" : "1:N";
 
+            // Shorten path so it starts/ends at the symbol convergence/outer-bar, not the table edge
+            const fxOff = fromIsMany ? 14 : 8;
+            const txOff = toIsMany ? 14 : 8;
+            const fxP = fx + fromDir * fxOff;
+            const txP = tx + toDir * txOff;
+            const cpAdj = Math.max(Math.abs(txP - fxP) * 0.5 + 20, 30);
+            const pathDAdj = `M ${fxP} ${fy} C ${fxP + (fromRight ? cpAdj : -cpAdj)} ${fy} ${txP - (fromRight ? cpAdj : -cpAdj)} ${ty} ${txP} ${ty}`;
+
             return (
               <g key={i}>
                 <title>{rel.label} ({typeLabel})</title>
-                {/* Invisible wider hit area for tooltip */}
+                {/* Invisible wider hit area for tooltip (covers full range including symbols) */}
                 <path d={bezierD(fx, fy, tx, ty)} fill="none" stroke="transparent" strokeWidth={10} />
-                {/* Relation line */}
+                {/* Relation line (shortened to not overlap symbols) */}
                 <path
-                  d={bezierD(fx, fy, tx, ty)}
+                  d={pathDAdj}
                   fill="none"
                   style={{ stroke: color }}
                   strokeWidth={1.5}
