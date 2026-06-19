@@ -3,6 +3,8 @@ services:
     build:
       context: .
       args:
+        # Optional — only set BASE_PATH when deploying under a sub-path via a reverse proxy.
+        # Leave unset (or empty) when serving the app directly on a port.
         - BASE_PATH=${BASE_PATH:-}
     container_name: strawdmin
     ports:
@@ -25,7 +27,10 @@ services:
       - ./data:/app/data
     restart: unless-stopped
 
-# ── Sub-path deployment ────────────────────────────────────────────────────────
+# ── Sub-path deployment (optional) ────────────────────────────────────────────
+# Only needed when a reverse proxy serves the app under a sub-path (e.g. /strawdmin).
+# Skip this entirely if the app is accessed directly on its port.
+#
 # Set BASE_PATH in .env and rebuild the image:
 #   BASE_PATH=/services/strawdmin   (in .env)
 #   docker compose up --build
