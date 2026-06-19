@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { PaginatedResult, SchemaTable, Column, TablePolicy } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
 import { getAlgorithmLabel } from "@/lib/crypto";
+import { UsersIcon, LockIcon } from "@/components/ui/icons";
 
 interface FkModal {
   refTable: string;
@@ -1019,17 +1020,17 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                   type="button"
                   onClick={openPolicyModal}
                   title="Manage per-user access policies"
-                  className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
                 >
-                  👥 Policies
+                  <UsersIcon size={14} className="shrink-0" /> Policies
                 </button>
                 <button
                   type="button"
                   onClick={() => openEncConfig()}
                   title="Configure write-time hashing · Mark columns that store hashed values (e.g. passwords). Support staff can then type the plaintext value when editing a record and Strawdmin hashes it automatically — matching what your application stores."
-                  className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
                 >
-                  🔒 Hashing
+                  <LockIcon size={14} className="shrink-0" /> Hashing
                 </button>
               </>
             )}
@@ -1122,7 +1123,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                         <span className="px-1 py-0.5 bg-emerald-500/15 text-emerald-400 text-[9px] rounded font-sans font-semibold">JSON</span>
                       )}
                       {encSettings[col.name] && (
-                        <span className="px-1 py-0.5 bg-violet-500/15 text-violet-400 text-[9px] rounded font-sans font-semibold" title={`Hashed: ${getAlgorithmLabel(encSettings[col.name].algorithm)}`}>🔒</span>
+                        <span className="px-1 py-0.5 bg-violet-500/15 text-violet-400 rounded flex items-center" title={`Hashed: ${getAlgorithmLabel(encSettings[col.name].algorithm)}`}><LockIcon size={9} /></span>
                       )}
                     </span>
                   </th>
@@ -1327,7 +1328,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                                         {col.isPrimary && <span className="text-[8px] text-[var(--primary)] font-bold shrink-0">PK</span>}
                                         {col.fk && <span className="text-[8px] text-amber-400 font-bold shrink-0">FK</span>}
                                         {col.isJson && <span className="text-[8px] text-emerald-400 font-bold shrink-0">JSON</span>}
-                                        {encSettings[col.name] && <span className="text-[8px] text-violet-400 shrink-0">🔒</span>}
+                                        {encSettings[col.name] && <span className="text-violet-400 shrink-0 flex items-center"><LockIcon size={9} /></span>}
                                         {isHidden && <span className="text-[8px] text-[var(--primary)]/60 shrink-0 ml-auto">hidden</span>}
                                       </div>
                                       <div className="h-px bg-[var(--border)] mb-1.5" />

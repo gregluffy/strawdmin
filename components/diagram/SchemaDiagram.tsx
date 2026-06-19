@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import type { Schema, SchemaTable } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
+import { ZoomInIcon, ZoomOutIcon, MaximizeIcon, DownloadIcon, SaveIcon, CheckIcon } from "@/components/ui/icons";
 
 const TABLE_W = 240;
 const HEADER_H = 40;
@@ -389,11 +390,11 @@ export function SchemaDiagram({ schema, savedPositions }: { schema: Schema; save
     }
   }, [positions]);
 
-  const toolbarButtons = [
-    { label: "+", title: "Zoom in",       fn: () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.2)) },
-    { label: "−", title: "Zoom out",      fn: () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.2)) },
-    { label: "⊡", title: "Fit to screen", fn: fitScreen },
-    { label: "↓", title: "Export PNG",    fn: exportPng },
+  const toolbarButtons: { label: ReactNode; title: string; fn: () => void }[] = [
+    { label: <ZoomInIcon size={15} />, title: "Zoom in",       fn: () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.2)) },
+    { label: <ZoomOutIcon size={15} />, title: "Zoom out",     fn: () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.2)) },
+    { label: <MaximizeIcon size={15} />, title: "Fit to screen", fn: fitScreen },
+    { label: <DownloadIcon size={15} />, title: "Export PNG",  fn: exportPng },
   ];
 
   return (
@@ -430,7 +431,7 @@ export function SchemaDiagram({ schema, savedPositions }: { schema: Schema; save
               : "bg-[var(--card)] border-[var(--border)] hover:bg-[var(--accent)] text-[var(--foreground)]"
           }`}
         >
-          {saving ? "…" : saved ? "✓" : "💾"}
+          {saving ? "…" : saved ? <CheckIcon size={15} /> : <SaveIcon size={15} />}
         </button>
       </div>
 
