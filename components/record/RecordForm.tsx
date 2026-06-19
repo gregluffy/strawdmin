@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import type { SchemaTable } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
 import { getAlgorithmLabel } from "@/lib/crypto";
+import { LockIcon } from "@/components/ui/icons";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -345,7 +346,7 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
                 title={`Enter the new plaintext value — Strawdmin will hash it with ${getAlgorithmLabel(encSettings[col.name]?.algorithm ?? "")} and put the result in this field, matching what your application stores. Useful for support staff resetting hashed fields like passwords without needing to know the hash format.`}
                 className="mt-1.5 text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1 transition-colors"
               >
-                🔐 Set hashed value
+                <LockIcon size={11} /> Set hashed value
               </button>
             )}
           </div>

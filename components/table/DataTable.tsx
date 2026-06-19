@@ -1020,7 +1020,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                   type="button"
                   onClick={openPolicyModal}
                   title="Manage per-user access policies"
-                  className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
                 >
                   <UsersIcon size={14} className="shrink-0" /> Policies
                 </button>
@@ -1028,7 +1028,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                   type="button"
                   onClick={() => openEncConfig()}
                   title="Configure write-time hashing · Mark columns that store hashed values (e.g. passwords). Support staff can then type the plaintext value when editing a record and Strawdmin hashes it automatically — matching what your application stores."
-                  className="px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
                 >
                   <LockIcon size={14} className="shrink-0" /> Hashing
                 </button>
