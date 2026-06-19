@@ -50,9 +50,10 @@ export function getDriver(conn: DbConnection): DbDriver {
       private_key: conn.ssh_private_key,
       passphrase: conn.ssh_passphrase,
     };
-    tunnelPromise = ensureTunnel(conn.id, sshCfg, type, connStr).then((h) =>
-      rewriteForTunnel(type, connStr, h.localPort)
-    );
+    tunnelPromise = ensureTunnel(conn.id, sshCfg, type, connStr, () => {
+      // SSH connection dropped — evict driver so the next query gets a fresh one
+      driverCache.delete(conn.id);
+    }).then((h) => rewriteForTunnel(type, connStr, h.localPort));
   }
 
   let driver: DbDriver;
@@ -134,6 +135,7 @@ function createPostgresDriver(connStr: string, tunnelPromise: Promise<string> | 
         const hasSSL = /sslmode=(?!disable)/i.test(effectiveConnStr) || effectiveConnStr.startsWith("https");
         return new Pool({
           connectionString: effectiveConnStr,
+          connectionTimeoutMillis: 10000,
           ...(hasSSL && { ssl: { rejectUnauthorized: false } }),
         });
       })();
