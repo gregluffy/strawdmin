@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { basePath } from "@/lib/api-url";
 
 export default function SetupPage() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -35,7 +33,8 @@ export default function SetupPage() {
         setError(data.error ?? "Setup failed");
         return;
       }
-      router.push("/dashboard");
+      // Hard redirect so the browser sends the fresh auth_token cookie on the next request
+      window.location.href = `${basePath}/dashboard`;
     } catch {
       setError("Network error");
     } finally {

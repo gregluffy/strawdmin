@@ -29,6 +29,8 @@ interface DbConn {
   ssh_port?: number;
   ssh_user?: string | null;
   ssh_auth_type?: "password" | "key";
+  has_ssh_private_key?: boolean;
+  has_ssh_password?: boolean;
 }
 
 type DbType = "postgres" | "mysql" | "mariadb" | "mssql" | "sqlite";
@@ -68,6 +70,8 @@ export function Header() {
   const [dbMenuPos, setDbMenuPos] = useState({ top: 0, left: 0 });
   const dbButtonRef = useRef<HTMLButtonElement>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [connectionsLoaded, setConnectionsLoaded] = useState(false);
+  const autoOpenedRef = useRef(false);
 
   const fetchConnections = useCallback(() => {
     fetch(`${basePath}/api/db-connections`)
@@ -75,9 +79,18 @@ export function Header() {
       .then((data) => {
         setConnections(data.connections ?? []);
         setActiveId(data.active_id ?? null);
+        setConnectionsLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => { setConnectionsLoaded(true); });
   }, []);
+
+  // Auto-open "Add connection" modal on first load when there are no connections
+  useEffect(() => {
+    if (connectionsLoaded && user?.role === "admin" && connections.length === 0 && !autoOpenedRef.current) {
+      autoOpenedRef.current = true;
+      setManageOpen(true);
+    }
+  }, [connectionsLoaded, user, connections.length]);
 
   useEffect(() => {
     fetch(`${basePath}/api/auth/me`).then((r) => r.json()).then(setUser).catch(() => {});
@@ -323,6 +336,8 @@ const INPUT_CLS = "w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-
 function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActivate }: ModalProps) {
   const [mode, setMode] = useState<FormMode>("list");
   const [editId, setEditId] = useState<number | null>(null);
+  const [editHasSavedKey, setEditHasSavedKey] = useState(false);
+  const [editHasSavedPassword, setEditHasSavedPassword] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -338,6 +353,8 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
   function openAdd() {
     setForm(EMPTY_FORM);
     setEditId(null);
+    setEditHasSavedKey(false);
+    setEditHasSavedPassword(false);
     setTestResult(null);
     setError(null);
     setMode("add");
@@ -358,6 +375,8 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
       ssh_passphrase: "",
     });
     setEditId(c.id);
+    setEditHasSavedKey(c.has_ssh_private_key ?? false);
+    setEditHasSavedPassword(c.has_ssh_password ?? false);
     setTestResult(null);
     setError(null);
     setMode("edit");
@@ -365,6 +384,7 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
 
   function buildTestBody() {
     const body: Record<string, unknown> = { db_type: form.db_type, connection_string: form.connection_string };
+    if (editId !== null) body.conn_id = editId;
     if (form.ssh_enabled) {
       body.ssh = {
         enabled: true,
@@ -611,17 +631,34 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
 
                       {form.ssh_auth_type === "password" ? (
                         <div>
-                          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">SSH Password</label>
-                          <input type="password" value={form.ssh_password} onChange={(e) => setF({ ssh_password: e.target.value })} autoComplete="new-password" className={INPUT_CLS} />
+                          <label className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)] mb-1">
+                            SSH Password
+                            {editHasSavedPassword && !form.ssh_password && (
+                              <span className="px-1 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 font-medium" style={{ fontSize: "10px" }}>saved</span>
+                            )}
+                          </label>
+                          <input
+                            type="password"
+                            value={form.ssh_password}
+                            onChange={(e) => setF({ ssh_password: e.target.value })}
+                            placeholder={editHasSavedPassword && !form.ssh_password ? "(password saved — leave blank to keep)" : ""}
+                            autoComplete="new-password"
+                            className={INPUT_CLS}
+                          />
                         </div>
                       ) : (
                         <>
                           <div>
-                            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Private Key (PEM)</label>
+                            <label className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)] mb-1">
+                              Private Key (PEM)
+                              {editHasSavedKey && !form.ssh_private_key && (
+                                <span className="px-1 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 font-medium" style={{ fontSize: "10px" }}>saved</span>
+                              )}
+                            </label>
                             <textarea
                               value={form.ssh_private_key}
                               onChange={(e) => setF({ ssh_private_key: e.target.value })}
-                              placeholder={"-----BEGIN OPENSSH PRIVATE KEY-----\n..."}
+                              placeholder={editHasSavedKey && !form.ssh_private_key ? "(SSH key saved — leave blank to keep existing)" : "-----BEGIN OPENSSH PRIVATE KEY-----\n..."}
                               rows={4}
                               className={`${INPUT_CLS} font-mono resize-none`}
                             />
@@ -631,10 +668,6 @@ function DbConnectionsModal({ connections, activeId, onClose, onChanged, onActiv
                             <input type="password" value={form.ssh_passphrase} onChange={(e) => setF({ ssh_passphrase: e.target.value })} autoComplete="new-password" className={INPUT_CLS} />
                           </div>
                         </>
-                      )}
-
-                      {mode === "edit" && (
-                        <p className="text-xs text-[var(--muted-foreground)]">Leave credentials blank to keep existing values.</p>
                       )}
                     </div>
                   )}

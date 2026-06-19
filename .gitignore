@@ -40,5 +40,8 @@ docker-compose.override.yml
 # Misc
 .cache/
 
+# App data (SQLite DB, backups) — never commit runtime data
+data/
+
 # Test coverage
 coverage/
