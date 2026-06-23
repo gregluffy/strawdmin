@@ -6,28 +6,42 @@ import { rewriteForTunnel, parseDbTarget } from "@/lib/ssh-tunnel";
 describe("rewriteForTunnel — postgres", () => {
   it("replaces host and port", () => {
     const result = rewriteForTunnel("postgres", "postgresql://user:pass@dbhost:5432/mydb", 12345);
-    expect(new URL(result).hostname).toBe("127.0.0.1");
-    expect(new URL(result).port).toBe("12345");
+    expect(result).toContain("@127.0.0.1:12345");
   });
 
   it("preserves username, password, and database path", () => {
     const result = rewriteForTunnel("postgres", "postgresql://alice:secret@dbhost:5432/production", 9000);
-    const url = new URL(result);
-    expect(url.username).toBe("alice");
-    expect(url.password).toBe("secret");
-    expect(url.pathname).toBe("/production");
+    expect(result).toBe("postgresql://alice:secret@127.0.0.1:9000/production");
   });
 
   it("replaces host when no port in original URL", () => {
     const result = rewriteForTunnel("postgres", "postgresql://user:pass@dbhost/mydb", 9001);
-    const url = new URL(result);
-    expect(url.hostname).toBe("127.0.0.1");
-    expect(url.port).toBe("9001");
+    expect(result).toBe("postgresql://user:pass@127.0.0.1:9001/mydb");
   });
 
   it("preserves query params (e.g. sslmode)", () => {
     const result = rewriteForTunnel("postgres", "postgresql://user:pass@dbhost:5432/mydb?sslmode=require", 9002);
-    expect(new URL(result).searchParams.get("sslmode")).toBe("require");
+    expect(result).toBe("postgresql://user:pass@127.0.0.1:9002/mydb?sslmode=require");
+  });
+
+  it("handles @ in password without mangling it", () => {
+    const result = rewriteForTunnel("postgres", "postgresql://user:p%40ss@dbhost:5432/mydb", 9003);
+    expect(result).toBe("postgresql://user:p%40ss@127.0.0.1:9003/mydb");
+  });
+
+  it("handles # in password", () => {
+    const result = rewriteForTunnel("postgres", "postgresql://user:p#ss@dbhost:5432/mydb", 9004);
+    expect(result).toBe("postgresql://user:p#ss@127.0.0.1:9004/mydb");
+  });
+
+  it("handles ? in password", () => {
+    const result = rewriteForTunnel("postgres", "postgresql://user:p?ss@dbhost:5432/mydb", 9005);
+    expect(result).toBe("postgresql://user:p?ss@127.0.0.1:9005/mydb");
+  });
+
+  it("handles / in password", () => {
+    const result = rewriteForTunnel("postgres", "postgresql://user:p/ss@dbhost:5432/mydb", 9006);
+    expect(result).toBe("postgresql://user:p/ss@127.0.0.1:9006/mydb");
   });
 });
 
@@ -94,6 +108,26 @@ describe("parseDbTarget — postgres", () => {
 
   it("defaults to port 5432 when not specified", () => {
     expect(parseDbTarget("postgres", "postgresql://user:pass@dbhost/mydb"))
+      .toEqual({ host: "dbhost", port: 5432 });
+  });
+
+  it("handles @ in password", () => {
+    expect(parseDbTarget("postgres", "postgresql://user:p@ss@dbhost:5432/mydb"))
+      .toEqual({ host: "dbhost", port: 5432 });
+  });
+
+  it("handles # in password", () => {
+    expect(parseDbTarget("postgres", "postgresql://user:p#ss@dbhost:5432/mydb"))
+      .toEqual({ host: "dbhost", port: 5432 });
+  });
+
+  it("handles ? in password", () => {
+    expect(parseDbTarget("postgres", "postgresql://user:p?ss@dbhost:5432/mydb"))
+      .toEqual({ host: "dbhost", port: 5432 });
+  });
+
+  it("handles / in password", () => {
+    expect(parseDbTarget("postgres", "postgresql://user:p/ss@dbhost:5432/mydb"))
       .toEqual({ host: "dbhost", port: 5432 });
   });
 });
