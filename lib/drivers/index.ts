@@ -1,5 +1,5 @@
 import type { DbType, DbConnection } from "../types";
-import { ensureTunnel, closeTunnel, rewriteForTunnel, openTunnel } from "../ssh-tunnel";
+import { ensureTunnel, closeTunnel, rewriteForTunnel, openTunnel, parseDbTarget } from "../ssh-tunnel";
 import type { SshConfig } from "../ssh-tunnel";
 
 export interface DbDriver {
@@ -15,7 +15,15 @@ export function getDbName(conn: DbConnection): string {
   const connStr = conn.connection_string;
   try {
     if (type === "postgres" || type === "mysql" || type === "mariadb") {
-      return new URL(connStr).pathname.replace(/^\//, "") || connStr;
+      // Avoid new URL() so passwords containing @, #, ?, / don't break parsing.
+      const schemeEnd = connStr.indexOf("://");
+      const afterScheme = schemeEnd !== -1 ? connStr.slice(schemeEnd + 3) : connStr;
+      const atIdx = afterScheme.lastIndexOf("@");
+      const fromHost = atIdx !== -1 ? afterScheme.slice(atIdx + 1) : afterScheme;
+      const slashIdx = fromHost.indexOf("/");
+      if (slashIdx === -1) return connStr;
+      const dbName = fromHost.slice(slashIdx + 1).split(/[?#]/)[0];
+      return dbName || connStr;
     }
     if (type === "mssql") {
       return connStr.match(/Database=([^;]+)/i)?.[1] ?? connStr;
@@ -101,25 +109,11 @@ export function createTempDriver(dbType: string, connStr: string): DbDriver {
 }
 
 export async function createTempDriverWithSsh(dbType: string, connStr: string, ssh: SshConfig): Promise<{ driver: DbDriver; closeTunnel: () => void }> {
-  const { host, port } = parseDbTargetForTemp(dbType, connStr);
+  const { host, port } = parseDbTarget(dbType as DbType, connStr);
   const handle = await openTunnel(ssh, host, port);
   const effectiveConnStr = rewriteForTunnel(dbType, connStr, handle.localPort);
   const driver = createTempDriver(dbType, effectiveConnStr);
   return { driver, closeTunnel: handle.close };
-}
-
-function parseDbTargetForTemp(dbType: string, connStr: string): { host: string; port: number } {
-  if (dbType === "postgres" || dbType === "mysql" || dbType === "mariadb") {
-    const url = new URL(connStr);
-    const defaultPort = dbType === "postgres" ? 5432 : 3306;
-    return { host: url.hostname, port: url.port ? parseInt(url.port, 10) : defaultPort };
-  }
-  if (dbType === "mssql") {
-    const m = connStr.match(/Server=([^,;\s]+)(?:,(\d+))?/i);
-    if (!m) throw new Error("Cannot parse MSSQL Server host from connection string");
-    return { host: m[1], port: m[2] ? parseInt(m[2], 10) : 1433 };
-  }
-  throw new Error("SSH tunneling is not supported for SQLite");
 }
 
 function createPostgresDriver(connStr: string, tunnelPromise: Promise<string> | null): DbDriver {

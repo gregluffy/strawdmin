@@ -22,11 +22,39 @@ export interface SshConfig {
 const tunnelCache = new Map<number, TunnelHandle>();
 const tunnelOpeningCache = new Map<number, Promise<TunnelHandle>>();
 
+// Extract host and port from a URL-style connection string without using the URL
+// API, so passwords containing @, #, ?, or / do not confuse the parser.
+// Strategy: the hostname can never contain @, so the LAST @ in the authority
+// section is always the userinfo separator.
+function splitUrlHostPort(connStr: string, defaultPort: number): { host: string; port: number } {
+  const schemeEnd = connStr.indexOf("://");
+  const afterScheme = schemeEnd !== -1 ? connStr.slice(schemeEnd + 3) : connStr;
+  const atIdx = afterScheme.lastIndexOf("@");
+  const fromHost = atIdx !== -1 ? afterScheme.slice(atIdx + 1) : afterScheme;
+  const stopAt = fromHost.search(/[/?#]/);
+  const hostPort = stopAt !== -1 ? fromHost.slice(0, stopAt) : fromHost;
+  const colonIdx = hostPort.lastIndexOf(":");
+  const host = colonIdx !== -1 ? hostPort.slice(0, colonIdx) : hostPort;
+  const portStr = colonIdx !== -1 ? hostPort.slice(colonIdx + 1) : "";
+  return { host, port: portStr ? parseInt(portStr, 10) : defaultPort };
+}
+
+function rewriteUrlHostPort(connStr: string, newHost: string, newPort: number): string {
+  const schemeEnd = connStr.indexOf("://");
+  const afterScheme = schemeEnd !== -1 ? connStr.slice(schemeEnd + 3) : connStr;
+  const prefix = schemeEnd !== -1 ? connStr.slice(0, schemeEnd + 3) : "";
+  const atIdx = afterScheme.lastIndexOf("@");
+  const userInfo = atIdx !== -1 ? afterScheme.slice(0, atIdx + 1) : "";
+  const fromHost = atIdx !== -1 ? afterScheme.slice(atIdx + 1) : afterScheme;
+  const stopAt = fromHost.search(/[/?#]/);
+  const suffix = stopAt !== -1 ? fromHost.slice(stopAt) : "";
+  return `${prefix}${userInfo}${newHost}:${newPort}${suffix}`;
+}
+
 export function parseDbTarget(dbType: DbType, connectionString: string): { host: string; port: number } {
   if (dbType === "postgres" || dbType === "mysql" || dbType === "mariadb") {
-    const url = new URL(connectionString);
     const defaultPort = dbType === "postgres" ? 5432 : 3306;
-    return { host: url.hostname, port: url.port ? parseInt(url.port, 10) : defaultPort };
+    return splitUrlHostPort(connectionString, defaultPort);
   }
   if (dbType === "mssql") {
     const m = connectionString.match(/Server=([^,;\s]+)(?:,(\d+))?/i);
@@ -38,10 +66,7 @@ export function parseDbTarget(dbType: DbType, connectionString: string): { host:
 
 export function rewriteForTunnel(dbType: string, connectionString: string, localPort: number): string {
   if (dbType === "postgres" || dbType === "mysql" || dbType === "mariadb") {
-    const url = new URL(connectionString);
-    url.hostname = "127.0.0.1";
-    url.port = String(localPort);
-    return url.toString();
+    return rewriteUrlHostPort(connectionString, "127.0.0.1", localPort);
   }
   if (dbType === "mssql") {
     return connectionString.replace(/Server=[^,;\s]+(?:,\d+)?/i, `Server=127.0.0.1,${localPort}`);
