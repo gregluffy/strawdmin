@@ -1165,10 +1165,15 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                       )}
                       {col.fk && (
                         <span
-                          className="px-1 py-0.5 bg-amber-500/15 text-amber-400 text-[9px] rounded font-sans font-semibold"
+                          className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-amber-500/15 text-amber-400 text-[9px] rounded font-sans font-semibold"
                           title={fkSettings[col.name] ? `Mask depth: ${fkSettings[col.name].length}` : undefined}
                         >
-                          FK{fkSettings[col.name] ? (fkSettings[col.name].length === 2 ? "²" : "¹") : ""}
+                          FK
+                          {fkSettings[col.name] && (
+                            <span className="inline-flex items-center justify-center w-3.5 h-3.5 bg-amber-400 text-black text-[8px] rounded-sm font-bold leading-none">
+                              {fkSettings[col.name].length}
+                            </span>
+                          )}
                         </span>
                       )}
                       {col.isJson && (
