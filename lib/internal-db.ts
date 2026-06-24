@@ -379,6 +379,14 @@ export async function deleteUser(id: number): Promise<boolean> {
 
 // ── FK display settings ─────────────────────────────────────────────────────
 
+function parseDisplayPath(stored: string): string[] {
+  try {
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed) && parsed.every((s) => typeof s === "string")) return parsed;
+  } catch {}
+  return [stored]; // legacy plain string stored before path support
+}
+
 export async function getFkSettings(tableName: string, connId: number): Promise<FkDisplaySetting[]> {
   const fingerprint = getDbFingerprint(connId);
   const c = await db();
@@ -388,14 +396,14 @@ export async function getFkSettings(tableName: string, connId: number): Promise<
   });
   return rows.rows.map((r) => ({
     column_name: String(r.column_name),
-    display_field: String(r.display_field),
+    display_path: parseDisplayPath(String(r.display_field)),
   }));
 }
 
 export async function upsertFkSetting(
   tableName: string,
   columnName: string,
-  displayField: string,
+  displayPath: string[],
   connId: number
 ): Promise<void> {
   const fingerprint = getDbFingerprint(connId);
@@ -404,7 +412,7 @@ export async function upsertFkSetting(
     sql: `INSERT INTO fk_display_settings (db_fingerprint, table_name, column_name, display_field)
           VALUES (?, ?, ?, ?)
           ON CONFLICT(db_fingerprint, table_name, column_name) DO UPDATE SET display_field = excluded.display_field`,
-    args: [fingerprint, tableName, columnName, displayField],
+    args: [fingerprint, tableName, columnName, JSON.stringify(displayPath)],
   });
 }
 
@@ -659,7 +667,7 @@ export async function restoreAllSettings(backup: {
   await c.execute({ sql: "DELETE FROM column_policies WHERE db_fingerprint = ?", args: [fingerprint] });
 
   for (const r of backup.fk_display ?? []) {
-    await c.execute({ sql: "INSERT INTO fk_display_settings (db_fingerprint, table_name, column_name, display_field) VALUES (?,?,?,?)", args: [fingerprint, r.table_name, r.column_name, r.display_field] });
+    await c.execute({ sql: "INSERT INTO fk_display_settings (db_fingerprint, table_name, column_name, display_field) VALUES (?,?,?,?)", args: [fingerprint, r.table_name, r.column_name, JSON.stringify(parseDisplayPath(r.display_field))] });
   }
   for (const r of backup.field_encryption ?? []) {
     await c.execute({ sql: "INSERT INTO field_encryption_settings (db_fingerprint, table_name, column_name, algorithm, salt_column) VALUES (?,?,?,?,?)", args: [fingerprint, r.table_name, r.column_name, r.algorithm, r.salt_column ?? null] });

@@ -77,7 +77,7 @@ export interface BackupFile {
 
 export interface FkDisplaySetting {
   column_name: string;
-  display_field: string;
+  display_path: string[];
 }
 
 export interface EncryptionSetting {

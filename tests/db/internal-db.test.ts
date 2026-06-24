@@ -534,13 +534,13 @@ describe("exportAllSettings / restoreAllSettings round-trip", () => {
 
 describe("settings isolation per connId", () => {
   it("FK settings are isolated per connection", async () => {
-    await upsertFkSetting("orders", "customer_id", "name", 1);
-    await upsertFkSetting("orders", "customer_id", "email", 2);
+    await upsertFkSetting("orders", "customer_id", ["name"], 1);
+    await upsertFkSetting("orders", "customer_id", ["email"], 2);
 
     const settings1 = await getFkSettings("orders", 1);
     const settings2 = await getFkSettings("orders", 2);
 
-    expect(settings1[0]?.display_field).toBe("name");
-    expect(settings2[0]?.display_field).toBe("email");
+    expect(settings1[0]?.display_path).toEqual(["name"]);
+    expect(settings2[0]?.display_path).toEqual(["email"]);
   });
 });
