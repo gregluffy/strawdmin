@@ -148,7 +148,7 @@ describe("GET /api/tables/[table] — search with FK display setting", () => {
       return null;
     });
     vi.mocked(getFkSettings).mockResolvedValue([
-      { column_name: "customer_id", display_field: "name" },
+      { column_name: "customer_id", display_path: ["name"] },
     ]);
   });
 
@@ -206,7 +206,7 @@ describe("GET /api/tables/[table] — FK display setting edge cases", () => {
     };
     vi.mocked(getTable).mockResolvedValue(schemaNoFkMeta as any);
     vi.mocked(getFkSettings).mockResolvedValue([
-      { column_name: "customer_id", display_field: "name" },
+      { column_name: "customer_id", display_path: ["name"] },
     ]);
 
     const res = await GET(makeRequest("orders", { search: "john" }), routeParams("orders"));
@@ -221,7 +221,7 @@ describe("GET /api/tables/[table] — FK display setting edge cases", () => {
       return null;
     });
     vi.mocked(getFkSettings).mockResolvedValue([
-      { column_name: "customer_id", display_field: "nonexistent_field" },
+      { column_name: "customer_id", display_path: ["nonexistent_field"] },
     ]);
 
     const res = await GET(makeRequest("orders", { search: "john" }), routeParams("orders"));
@@ -235,7 +235,7 @@ describe("GET /api/tables/[table] — FK display setting edge cases", () => {
       return null; // ref table not found
     });
     vi.mocked(getFkSettings).mockResolvedValue([
-      { column_name: "customer_id", display_field: "name" },
+      { column_name: "customer_id", display_path: ["name"] },
     ]);
 
     const res = await GET(makeRequest("orders", { search: "john" }), routeParams("orders"));
@@ -273,8 +273,8 @@ describe("GET /api/tables/[table] — multiple FK display settings", () => {
       return null;
     });
     vi.mocked(getFkSettings).mockResolvedValue([
-      { column_name: "customer_id", display_field: "name" },
-      { column_name: "product_id", display_field: "title" },
+      { column_name: "customer_id", display_path: ["name"] },
+      { column_name: "product_id", display_path: ["title"] },
     ]);
 
     await GET(makeRequest("orders", { search: "foo" }), routeParams("orders"));

@@ -50,12 +50,32 @@ export async function GET(
         const col = schema.columns.find((c) => c.name === setting.column_name);
         if (!col?.fk) continue;
         const refSchema = await getTable(col.fk.table, conn);
-        if (!refSchema?.columns.some((c) => c.name === setting.display_field)) continue;
-        const alias = `_fk${joinIdx++}`;
-        fkJoins.push(
-          `LEFT JOIN ${driver.quote(col.fk.table)} ${alias} ON ${driver.quote(table)}.${driver.quote(setting.column_name)} = ${alias}.${driver.quote(col.fk.column)}`
-        );
-        fkConditions.push({ alias, field: setting.display_field });
+        if (!refSchema) continue;
+
+        if (setting.display_path.length === 1) {
+          const [displayField] = setting.display_path;
+          if (!refSchema.columns.some((c) => c.name === displayField)) continue;
+          const alias = `_fk${joinIdx++}`;
+          fkJoins.push(
+            `LEFT JOIN ${driver.quote(col.fk.table)} ${alias} ON ${driver.quote(table)}.${driver.quote(col.name)} = ${alias}.${driver.quote(col.fk.column)}`
+          );
+          fkConditions.push({ alias, field: displayField });
+        } else if (setting.display_path.length === 2) {
+          const [hopCol, displayField] = setting.display_path;
+          const hopColDef = refSchema.columns.find((c) => c.name === hopCol);
+          if (!hopColDef?.fk) continue;
+          const hop2Schema = await getTable(hopColDef.fk.table, conn);
+          if (!hop2Schema?.columns.some((c) => c.name === displayField)) continue;
+          const alias1 = `_fk${joinIdx++}`;
+          fkJoins.push(
+            `LEFT JOIN ${driver.quote(col.fk.table)} ${alias1} ON ${driver.quote(table)}.${driver.quote(col.name)} = ${alias1}.${driver.quote(col.fk.column)}`
+          );
+          const alias2 = `_fk${joinIdx++}`;
+          fkJoins.push(
+            `LEFT JOIN ${driver.quote(hopColDef.fk.table)} ${alias2} ON ${alias1}.${driver.quote(hopCol)} = ${alias2}.${driver.quote(hopColDef.fk.column)}`
+          );
+          fkConditions.push({ alias: alias2, field: displayField });
+        }
       }
     }
 

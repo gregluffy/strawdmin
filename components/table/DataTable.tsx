@@ -16,8 +16,11 @@ interface FkModal {
 
 interface FkConfigState {
   col: Column;
-  refTableCols: string[];
+  allTables: SchemaTable[];
+  refTableSchema: SchemaTable | null;
   selectedField: string;
+  level2Schema: SchemaTable | null;
+  selectedField2: string;
   saving: boolean;
 }
 
@@ -65,7 +68,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
   const [fkModal, setFkModal] = useState<FkModal | null>(null);
   const [pinnedRows, setPinnedRows] = useState<Set<string>>(new Set());
 
-  const [fkSettings, setFkSettings] = useState<Record<string, string>>({});
+  const [fkSettings, setFkSettings] = useState<Record<string, string[]>>({});
   const [fkDisplayValues, setFkDisplayValues] = useState<Record<string, Record<string, string>>>({});
   const [fkConfig, setFkConfig] = useState<FkConfigState | null>(null);
 
@@ -112,10 +115,10 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
   useEffect(() => {
     fetch(`${basePath}/api/fk-settings?table=${encodeURIComponent(tableName)}`)
       .then((r) => r.json())
-      .then((data: { column_name: string; display_field: string }[]) => {
+      .then((data: { column_name: string; display_path: string[] }[]) => {
         if (!Array.isArray(data)) return;
-        const map: Record<string, string> = {};
-        for (const s of data) map[s.column_name] = s.display_field;
+        const map: Record<string, string[]> = {};
+        for (const s of data) map[s.column_name] = s.display_path;
         setFkSettings(map);
       })
       .catch(() => {});
@@ -138,7 +141,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
     const fkCols = schema.columns.filter((c) => c.fk && fkSettings[c.name]);
     if (fkCols.length === 0) return;
     for (const col of fkCols) {
-      const displayField = fkSettings[col.name];
+      const displayPath = fkSettings[col.name];
       const uniqueIds = [
         ...new Set(
           result.rows
@@ -149,7 +152,8 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
       ];
       if (uniqueIds.length === 0) continue;
       const refTable = col.fk!.table;
-      fetch(`${basePath}/api/fk-display?refTable=${encodeURIComponent(refTable)}&field=${encodeURIComponent(displayField)}&ids=${uniqueIds.join(",")}`)
+      const pathParam = encodeURIComponent(displayPath.join(","));
+      fetch(`${basePath}/api/fk-display?refTable=${encodeURIComponent(refTable)}&path=${pathParam}&ids=${uniqueIds.join(",")}`)
         .then((r) => r.json())
         .then((data: Record<string, string>) => {
           setFkDisplayValues((prev) => ({ ...prev, [col.name]: { ...prev[col.name], ...data } }));
@@ -236,36 +240,40 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
 
   async function openFkConfig(col: Column) {
     const refTable = col.fk!.table;
+    const existingPath = fkSettings[col.name] ?? [];
     try {
       const res = await fetch(`${basePath}/api/schema`);
       const data = await res.json();
-      const tableSchema = data.tables?.find((t: SchemaTable) => t.name === refTable);
-      const cols: string[] = tableSchema?.columns.map((c: Column) => c.name) ?? [];
-      setFkConfig({
-        col,
-        refTableCols: cols,
-        selectedField: fkSettings[col.name] ?? cols[0] ?? "",
-        saving: false,
-      });
+      const allTables: SchemaTable[] = data.tables ?? [];
+      const refTableSchema: SchemaTable | null = allTables.find((t) => t.name === refTable) ?? null;
+      const sel1 = existingPath[0] ?? refTableSchema?.columns[0]?.name ?? "";
+      const sel2 = existingPath[1] ?? "";
+      const sel1ColDef = refTableSchema?.columns.find((c) => c.name === sel1);
+      const level2Schema = sel1ColDef?.fk ? (allTables.find((t) => t.name === sel1ColDef.fk!.table) ?? null) : null;
+      setFkConfig({ col, allTables, refTableSchema, selectedField: sel1, level2Schema, selectedField2: sel2, saving: false });
     } catch {
-      setFkConfig({ col, refTableCols: [], selectedField: fkSettings[col.name] ?? "", saving: false });
+      setFkConfig({ col, allTables: [], refTableSchema: null, selectedField: existingPath[0] ?? "", level2Schema: null, selectedField2: existingPath[1] ?? "", saving: false });
     }
   }
 
   async function saveFkConfig() {
     if (!fkConfig) return;
+    const displayPath = fkConfig.selectedField2
+      ? [fkConfig.selectedField, fkConfig.selectedField2]
+      : [fkConfig.selectedField];
     setFkConfig((prev) => prev ? { ...prev, saving: true } : null);
     try {
       await fetch(`${basePath}/api/fk-settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ table: tableName, column: fkConfig.col.name, displayField: fkConfig.selectedField }),
+        body: JSON.stringify({ table: tableName, column: fkConfig.col.name, displayPath }),
       });
-      setFkSettings((prev) => ({ ...prev, [fkConfig.col.name]: fkConfig.selectedField }));
+      setFkSettings((prev) => ({ ...prev, [fkConfig.col.name]: displayPath }));
       if (result) {
         const uniqueIds = [...new Set(result.rows.map((r) => r[fkConfig.col.name]).filter((v) => v !== null && v !== undefined).map(String))];
         if (uniqueIds.length > 0) {
-          fetch(`${basePath}/api/fk-display?refTable=${encodeURIComponent(fkConfig.col.fk!.table)}&field=${encodeURIComponent(fkConfig.selectedField)}&ids=${uniqueIds.join(",")}`)
+          const pathParam = encodeURIComponent(displayPath.join(","));
+          fetch(`${basePath}/api/fk-display?refTable=${encodeURIComponent(fkConfig.col.fk!.table)}&path=${pathParam}&ids=${uniqueIds.join(",")}`)
             .then((r) => r.json())
             .then((data: Record<string, string>) => {
               setFkDisplayValues((prev) => ({ ...prev, [fkConfig.col.name]: data }));
@@ -582,21 +590,60 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
               <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">FK display field</p>
               <h2 className="font-semibold text-[var(--foreground)] font-mono">{fkConfig.col.name}</h2>
               <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                Choose which field from <span className="font-mono text-amber-400">{fkConfig.col.fk!.table}</span> to show inline in this column.
+                Choose a field from <span className="font-mono text-amber-400">{fkConfig.col.fk!.table}</span> to show inline.
+                If that field is itself a FK, you can optionally follow it one level deeper.
               </p>
             </div>
-            {fkConfig.refTableCols.length === 0 ? (
+            {!fkConfig.refTableSchema ? (
               <p className="text-sm text-[var(--muted-foreground)]">Could not load columns for this table.</p>
             ) : (
-              <select
-                value={fkConfig.selectedField}
-                onChange={(e) => setFkConfig((prev) => prev ? { ...prev, selectedField: e.target.value } : null)}
-                className="w-full px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-              >
-                {fkConfig.refTableCols.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+              <div className="flex flex-col gap-3">
+                {/* Level 1 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-[var(--muted-foreground)] font-mono">{fkConfig.col.fk!.table}</label>
+                  <select
+                    value={fkConfig.selectedField}
+                    onChange={(e) => {
+                      const newField = e.target.value;
+                      const sel1ColDef = fkConfig.refTableSchema?.columns.find((c) => c.name === newField);
+                      const newLevel2Schema = sel1ColDef?.fk
+                        ? (fkConfig.allTables.find((t) => t.name === sel1ColDef.fk!.table) ?? null)
+                        : null;
+                      setFkConfig((prev) => prev ? { ...prev, selectedField: newField, level2Schema: newLevel2Schema, selectedField2: "" } : null);
+                    }}
+                    className="w-full px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                  >
+                    {fkConfig.refTableSchema.columns.map((c) => (
+                      <option key={c.name} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Level 2 — only shown when the selected level-1 field is itself a FK */}
+                {fkConfig.level2Schema && (
+                  <div className="flex flex-col gap-1 pl-3 border-l-2 border-amber-400/30">
+                    <label className="text-xs text-[var(--muted-foreground)]">
+                      Follow into <span className="font-mono text-amber-400">{fkConfig.level2Schema.name}</span> and show:
+                    </label>
+                    <select
+                      value={fkConfig.selectedField2}
+                      onChange={(e) => setFkConfig((prev) => prev ? { ...prev, selectedField2: e.target.value } : null)}
+                      className="w-full px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    >
+                      <option value="">— show {fkConfig.selectedField} directly —</option>
+                      {fkConfig.level2Schema.columns.map((c) => (
+                        <option key={c.name} value={c.name}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Path preview */}
+                <p className="text-xs text-[var(--muted-foreground)] font-mono">
+                  {fkConfig.col.name} → {fkConfig.col.fk!.table}.{fkConfig.selectedField}
+                  {fkConfig.selectedField2 ? ` → ${fkConfig.level2Schema?.name}.${fkConfig.selectedField2}` : ""}
+                </p>
+              </div>
             )}
             <div className="flex items-center justify-end gap-3">
               <button
@@ -1117,7 +1164,17 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                         <span className="px-1 py-0.5 bg-[var(--primary)]/15 text-[var(--primary)] text-[9px] rounded font-sans font-semibold">PK</span>
                       )}
                       {col.fk && (
-                        <span className="px-1 py-0.5 bg-amber-500/15 text-amber-400 text-[9px] rounded font-sans font-semibold">FK</span>
+                        <span
+                          className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-amber-500/15 text-amber-400 text-[9px] rounded font-sans font-semibold"
+                          title={fkSettings[col.name] ? `Mask depth: ${fkSettings[col.name].length}` : undefined}
+                        >
+                          FK
+                          {fkSettings[col.name] && (
+                            <span className="inline-flex items-center justify-center w-3.5 h-3.5 bg-amber-400 text-black text-[8px] rounded-sm font-bold leading-none">
+                              {fkSettings[col.name].length}
+                            </span>
+                          )}
+                        </span>
                       )}
                       {col.isJson && (
                         <span className="px-1 py-0.5 bg-emerald-500/15 text-emerald-400 text-[9px] rounded font-sans font-semibold">JSON</span>

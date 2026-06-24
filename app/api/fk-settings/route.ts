@@ -30,11 +30,11 @@ export async function PUT(req: NextRequest) {
   if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
 
   try {
-    const { table, column, displayField } = await req.json();
-    if (!table || !column || !displayField) {
-      return NextResponse.json({ error: "Missing table, column, or displayField" }, { status: 400 });
+    const { table, column, displayPath } = await req.json();
+    if (!table || !column || !Array.isArray(displayPath) || displayPath.length === 0 || displayPath.length > 2) {
+      return NextResponse.json({ error: "Missing or invalid table, column, or displayPath" }, { status: 400 });
     }
-    await upsertFkSetting(table, column, displayField, conn.id);
+    await upsertFkSetting(table, column, displayPath, conn.id);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
     console.error(err);
