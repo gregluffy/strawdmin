@@ -645,20 +645,40 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                 </p>
               </div>
             )}
-            <div className="flex items-center justify-end gap-3">
+            <div className="flex items-center justify-between gap-3">
               <button
-                onClick={() => setFkConfig(null)}
-                className="px-4 py-2 text-sm rounded-lg bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] border border-[var(--border)] transition-colors"
+                onClick={async () => {
+                  if (!fkConfig) return;
+                  setFkConfig((prev) => prev ? { ...prev, saving: true } : null);
+                  try {
+                    await fetch(`${basePath}/api/fk-settings?table=${encodeURIComponent(tableName)}&column=${encodeURIComponent(fkConfig.col.name)}`, { method: "DELETE" });
+                    setFkSettings((prev) => { const next = { ...prev }; delete next[fkConfig.col.name]; return next; });
+                    setFkDisplayValues((prev) => { const next = { ...prev }; delete next[fkConfig.col.name]; return next; });
+                    setFkConfig(null);
+                  } catch {
+                    setFkConfig((prev) => prev ? { ...prev, saving: false } : null);
+                  }
+                }}
+                disabled={fkConfig.saving || !fkSettings[fkConfig.col.name]}
+                className="px-4 py-2 text-sm rounded-lg bg-transparent hover:bg-red-500/10 text-red-400 border border-red-500/30 transition-colors disabled:opacity-30"
               >
-                Cancel
+                Clear
               </button>
-              <button
-                onClick={saveFkConfig}
-                disabled={fkConfig.saving || !fkConfig.selectedField}
-                className="px-4 py-2 text-sm rounded-lg bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white font-medium transition-colors disabled:opacity-50"
-              >
-                {fkConfig.saving ? "Saving…" : "Save"}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setFkConfig(null)}
+                  className="px-4 py-2 text-sm rounded-lg bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] border border-[var(--border)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveFkConfig}
+                  disabled={fkConfig.saving || !fkConfig.selectedField}
+                  className="px-4 py-2 text-sm rounded-lg bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white font-medium transition-colors disabled:opacity-50"
+                >
+                  {fkConfig.saving ? "Saving…" : "Save"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1166,14 +1186,12 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
                       {col.fk && (
                         <span
                           className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-amber-500/15 text-amber-400 text-[9px] rounded font-sans font-semibold"
-                          title={fkSettings[col.name] ? `Mask depth: ${fkSettings[col.name].length}` : undefined}
+                          title={`Mask depth: ${fkSettings[col.name] ? fkSettings[col.name].length : 0}`}
                         >
                           FK
-                          {fkSettings[col.name] && (
-                            <span className="inline-flex items-center justify-center w-3.5 h-3.5 bg-amber-400 text-black text-[8px] rounded-sm font-bold leading-none">
-                              {fkSettings[col.name].length}
-                            </span>
-                          )}
+                          <span className="inline-flex items-center justify-center w-3.5 h-3.5 bg-amber-400 text-black text-[8px] rounded-sm font-bold leading-none">
+                            {fkSettings[col.name] ? fkSettings[col.name].length : 0}
+                          </span>
                         </span>
                       )}
                       {col.isJson && (
