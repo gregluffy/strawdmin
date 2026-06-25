@@ -400,6 +400,19 @@ export async function getFkSettings(tableName: string, connId: number): Promise<
   }));
 }
 
+export async function deleteFkSetting(
+  tableName: string,
+  columnName: string,
+  connId: number
+): Promise<void> {
+  const fingerprint = getDbFingerprint(connId);
+  const c = await db();
+  await c.execute({
+    sql: "DELETE FROM fk_display_settings WHERE db_fingerprint = ? AND table_name = ? AND column_name = ?",
+    args: [fingerprint, tableName, columnName],
+  });
+}
+
 export async function upsertFkSetting(
   tableName: string,
   columnName: string,
