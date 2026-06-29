@@ -30,7 +30,7 @@ export async function PUT(req: NextRequest) {
   if (!conn) return NextResponse.json({ error: "No active database connection" }, { status: 400 });
 
   try {
-    const { table, visible_cols, sort_col, sort_dir } = await req.json();
+    const { table, visible_cols, all_cols, sort_col, sort_dir } = await req.json();
     if (
       !table ||
       !Array.isArray(visible_cols) ||
@@ -40,7 +40,7 @@ export async function PUT(req: NextRequest) {
     ) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
-    await upsertViewSettings(table, visible_cols as string[], sort_col as string, sort_dir as "asc" | "desc", conn.id);
+    await upsertViewSettings(table, visible_cols as string[], Array.isArray(all_cols) ? all_cols as string[] : [], sort_col as string, sort_dir as "asc" | "desc", conn.id);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
     console.error(err);

@@ -84,6 +84,7 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
     sort_dir       TEXT NOT NULL DEFAULT 'asc',
     PRIMARY KEY (db_fingerprint, table_name)
   )`);
+  try { await db.execute(`ALTER TABLE table_view_settings ADD COLUMN all_cols TEXT`); } catch { /* already exists */ }
   await db.execute(`CREATE TABLE IF NOT EXISTS table_policies (
     db_fingerprint TEXT NOT NULL,
     user_id        INTEGER NOT NULL,
@@ -480,6 +481,7 @@ export async function deleteEncryptionSetting(
 
 export interface ViewSettings {
   visible_cols: string[];
+  all_cols: string[] | null;
   sort_col: string;
   sort_dir: "asc" | "desc";
 }
@@ -488,7 +490,7 @@ export async function getViewSettings(tableName: string, connId: number): Promis
   const fingerprint = getDbFingerprint(connId);
   const c = await db();
   const rows = await c.execute({
-    sql: "SELECT visible_cols, sort_col, sort_dir FROM table_view_settings WHERE db_fingerprint = ? AND table_name = ?",
+    sql: "SELECT visible_cols, all_cols, sort_col, sort_dir FROM table_view_settings WHERE db_fingerprint = ? AND table_name = ?",
     args: [fingerprint, tableName],
   });
   if (rows.rows.length === 0) return null;
@@ -496,6 +498,7 @@ export async function getViewSettings(tableName: string, connId: number): Promis
   try {
     return {
       visible_cols: JSON.parse(String(r.visible_cols)) as string[],
+      all_cols: r.all_cols ? (JSON.parse(String(r.all_cols)) as string[]) : null,
       sort_col: String(r.sort_col),
       sort_dir: r.sort_dir === "desc" ? "desc" : "asc",
     };
@@ -507,6 +510,7 @@ export async function getViewSettings(tableName: string, connId: number): Promis
 export async function upsertViewSettings(
   tableName: string,
   visibleCols: string[],
+  allCols: string[],
   sortCol: string,
   sortDir: "asc" | "desc",
   connId: number
@@ -514,11 +518,11 @@ export async function upsertViewSettings(
   const fingerprint = getDbFingerprint(connId);
   const c = await db();
   await c.execute({
-    sql: `INSERT INTO table_view_settings (db_fingerprint, table_name, visible_cols, sort_col, sort_dir)
-          VALUES (?, ?, ?, ?, ?)
+    sql: `INSERT INTO table_view_settings (db_fingerprint, table_name, visible_cols, all_cols, sort_col, sort_dir)
+          VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(db_fingerprint, table_name)
-          DO UPDATE SET visible_cols = excluded.visible_cols, sort_col = excluded.sort_col, sort_dir = excluded.sort_dir`,
-    args: [fingerprint, tableName, JSON.stringify(visibleCols), sortCol, sortDir],
+          DO UPDATE SET visible_cols = excluded.visible_cols, all_cols = excluded.all_cols, sort_col = excluded.sort_col, sort_dir = excluded.sort_dir`,
+    args: [fingerprint, tableName, JSON.stringify(visibleCols), JSON.stringify(allCols), sortCol, sortDir],
   });
 }
 

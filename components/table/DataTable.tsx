@@ -77,8 +77,24 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
 
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [visibleCols, setVisibleCols] = useState<Set<string>>(
-    () => new Set(schema.columns.map((c) => c.name))
-  );
+    () => new Set(schema.columns.map((c) => c.name)));
+  // Track previous schema columns so we can detect additions vs hidden cols
+  const prevColSetRef = useRef(new Set(schema.columns.map((c) => c.name)));
+  useEffect(() => {
+    const current = new Set(schema.columns.map((c) => c.name));
+    const prev = prevColSetRef.current;
+    const same = current.size === prev.size && [...current].every((c) => prev.has(c));
+    if (same) return;
+    prevColSetRef.current = current;
+    setVisibleCols((before) => {
+      const next = new Set<string>();
+      for (const col of schema.columns) {
+        if (before.has(col.name) || !prev.has(col.name)) next.add(col.name);
+        // was in prev but not in before → explicitly hidden → omit
+      }
+      return next;
+    });
+  }, [schema]); // eslint-disable-line react-hooks/exhaustive-deps
   const [colConfigDraft, setColConfigDraft] = useState<ColConfigDraft | null>(null);
 
   // Policies modal (admin only)
@@ -97,10 +113,25 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
   useEffect(() => {
     fetch(`${basePath}/api/view-settings?table=${encodeURIComponent(tableName)}`)
       .then((r) => r.json())
-      .then((data: { visible_cols?: string[]; sort_col?: string; sort_dir?: string } | null) => {
+      .then((data: { visible_cols?: string[]; all_cols?: string[] | null; sort_col?: string; sort_dir?: string } | null) => {
         if (!data) return;
         if (Array.isArray(data.visible_cols) && data.visible_cols.length > 0) {
-          setVisibleCols(new Set(data.visible_cols));
+          const savedVisible = new Set(data.visible_cols);
+          if (Array.isArray(data.all_cols) && data.all_cols.length > 0) {
+            // We know exactly which columns existed at save time.
+            // New columns (in current schema but not in all_cols) default to visible.
+            const knownCols = new Set(data.all_cols);
+            const merged = new Set<string>();
+            for (const col of schema.columns) {
+              if (savedVisible.has(col.name)) merged.add(col.name); // was explicitly visible
+              else if (!knownCols.has(col.name)) merged.add(col.name); // new after migration
+              // in knownCols but not savedVisible → was explicitly hidden → omit
+            }
+            setVisibleCols(merged);
+          } else {
+            // Legacy settings without all_cols: apply visible_cols filtered to current schema
+            setVisibleCols(new Set(data.visible_cols.filter((c) => schema.columns.some((sc) => sc.name === c))));
+          }
         }
         if (typeof data.sort_col === "string" && schema.columns.some((c) => c.name === data.sort_col)) {
           setSort(data.sort_col);
@@ -319,6 +350,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
       body: JSON.stringify({
         table: tableName,
         visible_cols: [...colConfigDraft.cols],
+        all_cols: schema.columns.map((c) => c.name),
         sort_col: colConfigDraft.sort,
         sort_dir: colConfigDraft.dir,
       }),
