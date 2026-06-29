@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { Schema } from "@/lib/types";
@@ -11,6 +11,7 @@ import { TableIcon, UsersIcon, ShareIcon, ArchiveIcon, ClipboardIcon } from "@/c
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [schema, setSchema] = useState<Schema | null>(null);
   const [user, setUser] = useState<{ role: string } | null>(null);
   const [open, setOpen] = useState(true);
@@ -27,6 +28,7 @@ export function Sidebar() {
       await fetch(`${basePath}/api/schema`, { method: "DELETE" });
       const data = await fetch(`${basePath}/api/schema`).then((r) => r.json());
       setSchema(data);
+      router.refresh();
     } catch {
       // ignore
     } finally {
