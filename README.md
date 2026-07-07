@@ -25,6 +25,10 @@ Configure which field to show for foreign key columns instead of raw IDs — nam
 
 ![FK display](assets/fk-mask.png)
 
+### Search | Filter
+Ability to Search throught all columns or Filter for more complex filtering
+![Search | Filter](assets/filter.png)
+
 ### Column visibility & row expand
 Hide columns you don't need on the table view. Expand any row inline to see all its fields, including hidden ones.
 

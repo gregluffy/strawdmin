@@ -1118,7 +1118,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
               </div>
             )}
 
-            <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
+            <div className="flex flex-col gap-2 max-h-80 overflow-y-auto p-1 -m-1">
               {filterDraft.conditions.length === 0 && (
                 <p className="text-sm text-[var(--muted-foreground)] py-2">No conditions — showing all rows. Add a condition below.</p>
               )}
