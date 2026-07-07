@@ -63,6 +63,23 @@ export interface PaginatedResult {
   pageSize: number;
 }
 
+export type FilterOperator =
+  | "eq" | "neq" | "gt" | "gte" | "lt" | "lte"
+  | "contains" | "not_contains" | "starts_with" | "ends_with"
+  | "is_null" | "is_not_null";
+
+export type FilterLogic = "AND" | "OR";
+
+export interface FilterCondition {
+  column: string;
+  operator: FilterOperator;
+  value: string;
+}
+
+// Column types treated as free-text (substring/LIKE-eligible) by search and filters.
+// Shared between server (lib/sql.ts) and client (DataTable) so classification stays in sync.
+export const TEXTISH_TYPES = ["text", "varchar", "nvarchar", "char", "string"];
+
 export interface BackupMeta {
   name: string;
   size: number;

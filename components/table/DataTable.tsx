@@ -2,10 +2,43 @@
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import type { PaginatedResult, SchemaTable, Column, TablePolicy } from "@/lib/types";
+import type { PaginatedResult, SchemaTable, Column, TablePolicy, FilterCondition, FilterLogic, FilterOperator } from "@/lib/types";
+import { TEXTISH_TYPES } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
 import { getAlgorithmLabel } from "@/lib/crypto";
-import { UsersIcon, LockIcon } from "@/components/ui/icons";
+import { UsersIcon, LockIcon, FilterIcon, DownloadIcon } from "@/components/ui/icons";
+
+const OPERATOR_LABELS: Record<FilterOperator, string> = {
+  eq: "=",
+  neq: "≠",
+  gt: ">",
+  gte: "≥",
+  lt: "<",
+  lte: "≤",
+  contains: "contains",
+  not_contains: "does not contain",
+  starts_with: "starts with",
+  ends_with: "ends with",
+  is_null: "is empty",
+  is_not_null: "is not empty",
+};
+const TEXT_OPERATORS: FilterOperator[] = ["eq", "neq", "contains", "not_contains", "starts_with", "ends_with", "is_null", "is_not_null"];
+const NUMERIC_OPERATORS: FilterOperator[] = ["eq", "neq", "gt", "gte", "lt", "lte", "is_null", "is_not_null"];
+const NO_VALUE_OPERATORS = new Set<FilterOperator>(["is_null", "is_not_null"]);
+
+function isTextishType(colType: string): boolean {
+  const t = colType.toLowerCase();
+  return TEXTISH_TYPES.some((needle) => t.includes(needle));
+}
+
+interface FilterConditionDraft extends FilterCondition {
+  id: string;
+}
+
+interface FilterDraftState {
+  logic: FilterLogic;
+  conditions: FilterConditionDraft[];
+}
 
 interface FkModal {
   refTable: string;
@@ -96,6 +129,12 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
     });
   }, [schema]); // eslint-disable-line react-hooks/exhaustive-deps
   const [colConfigDraft, setColConfigDraft] = useState<ColConfigDraft | null>(null);
+
+  const [filters, setFilters] = useState<FilterCondition[]>([]);
+  const [filterLogic, setFilterLogic] = useState<FilterLogic>("AND");
+  const [filterDraft, setFilterDraft] = useState<FilterDraftState | null>(null);
+  const filterIdRef = useRef(0);
+  const filterableColumns = schema.columns.filter((c) => !c.isJson);
 
   // Policies modal (admin only)
   const [policyUsers, setPolicyUsers] = useState<PolicyUser[] | null>(null);
@@ -204,6 +243,10 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
         page: String(page),
         pageSize: String(pageSize),
       });
+      if (filters.length > 0) {
+        params.set("filters", JSON.stringify(filters));
+        params.set("filterLogic", filterLogic);
+      }
       const res = await fetch(`${basePath}/api/tables/${tableName}?${params}`);
       if (!res.ok) throw new Error(await res.text());
       setResult(await res.json());
@@ -212,7 +255,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
     } finally {
       setLoading(false);
     }
-  }, [tableName, search, sort, dir, page]);
+  }, [tableName, search, sort, dir, page, filters, filterLogic]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -356,6 +399,84 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
       }),
     }).catch(() => {});
     setColConfigDraft(null);
+  }
+
+  function nextFilterId() {
+    return `f${filterIdRef.current++}`;
+  }
+
+  function operatorsForColumn(colName: string): FilterOperator[] {
+    const col = schema.columns.find((c) => c.name === colName);
+    return col && isTextishType(col.type) ? TEXT_OPERATORS : NUMERIC_OPERATORS;
+  }
+
+  function openFilterModal() {
+    setFilterDraft({
+      logic: filterLogic,
+      conditions: filters.length > 0
+        ? filters.map((f) => ({ ...f, id: nextFilterId() }))
+        : [{ id: nextFilterId(), column: filterableColumns[0]?.name ?? "", operator: "eq", value: "" }],
+    });
+  }
+
+  function addFilterRow() {
+    setFilterDraft((prev) => prev ? {
+      ...prev,
+      conditions: [...prev.conditions, { id: nextFilterId(), column: filterableColumns[0]?.name ?? "", operator: "eq", value: "" }],
+    } : null);
+  }
+
+  function removeFilterRow(id: string) {
+    setFilterDraft((prev) => prev ? { ...prev, conditions: prev.conditions.filter((c) => c.id !== id) } : null);
+  }
+
+  function updateFilterDraftRow(id: string, patch: Partial<FilterConditionDraft>) {
+    setFilterDraft((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        conditions: prev.conditions.map((c) => {
+          if (c.id !== id) return c;
+          const next = { ...c, ...patch };
+          if (patch.column && !operatorsForColumn(patch.column).includes(next.operator)) {
+            next.operator = "eq";
+          }
+          return next;
+        }),
+      };
+    });
+  }
+
+  function applyFilters() {
+    if (!filterDraft) return;
+    const cleaned: FilterCondition[] = filterDraft.conditions
+      .filter((c) => c.column && (NO_VALUE_OPERATORS.has(c.operator) || c.value.trim() !== ""))
+      .map((c) => ({ column: c.column, operator: c.operator, value: c.value }));
+    setFilters(cleaned);
+    setFilterLogic(filterDraft.logic);
+    setPage(1);
+    setFilterDraft(null);
+  }
+
+  function clearFilters() {
+    setFilters([]);
+    setFilterLogic("AND");
+    setPage(1);
+  }
+
+  function handleExport() {
+    const params = new URLSearchParams({ search, sort, dir });
+    if (filters.length > 0) {
+      params.set("filters", JSON.stringify(filters));
+      params.set("filterLogic", filterLogic);
+    }
+    const url = `${basePath}/api/tables/${tableName}/export?${params}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${tableName}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   async function openPolicyModal() {
@@ -953,6 +1074,143 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
         </div>
       )}
 
+      {/* Filter modal */}
+      {filterDraft && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setFilterDraft(null)}
+        >
+          <div
+            className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-2xl w-full max-w-2xl p-6 flex flex-col gap-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">Filter</p>
+                <h2 className="font-semibold text-[var(--foreground)]">Show rows where…</h2>
+              </div>
+              <button
+                onClick={() => setFilterDraft(null)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors text-lg leading-none mt-0.5"
+              >
+                ×
+              </button>
+            </div>
+
+            {filterDraft.conditions.length > 1 && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-[var(--muted-foreground)]">Match</span>
+                {(["AND", "OR"] as FilterLogic[]).map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => setFilterDraft((prev) => prev ? { ...prev, logic: l } : null)}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition-colors border ${
+                      filterDraft.logic === l
+                        ? "bg-[var(--primary)] text-white border-[var(--primary)]"
+                        : "bg-[var(--secondary)] text-[var(--muted-foreground)] border-[var(--border)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    {l === "AND" ? "All" : "Any"}
+                  </button>
+                ))}
+                <span className="text-[var(--muted-foreground)]">of the following conditions</span>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
+              {filterDraft.conditions.length === 0 && (
+                <p className="text-sm text-[var(--muted-foreground)] py-2">No conditions — showing all rows. Add a condition below.</p>
+              )}
+              {filterDraft.conditions.map((cond, idx) => {
+                const ops = operatorsForColumn(cond.column);
+                const noValue = NO_VALUE_OPERATORS.has(cond.operator);
+                return (
+                  <div key={cond.id} className="flex flex-col gap-1">
+                    {idx > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-px flex-1 bg-[var(--border)]" />
+                        <span className="text-[10px] font-bold text-[var(--primary)] uppercase tracking-wider">{filterDraft.logic}</span>
+                        <div className="h-px flex-1 bg-[var(--border)]" />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={cond.column}
+                        onChange={(e) => updateFilterDraftRow(cond.id, { column: e.target.value })}
+                        className="flex-1 min-w-0 px-2.5 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                      >
+                        {filterableColumns.map((c) => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={cond.operator}
+                        onChange={(e) => updateFilterDraftRow(cond.id, { operator: e.target.value as FilterOperator })}
+                        className="shrink-0 px-2.5 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                      >
+                        {ops.map((op) => (
+                          <option key={op} value={op}>{OPERATOR_LABELS[op]}</option>
+                        ))}
+                      </select>
+                      {!noValue && (
+                        <input
+                          type="text"
+                          value={cond.value}
+                          onChange={(e) => updateFilterDraftRow(cond.id, { value: e.target.value })}
+                          placeholder="Value"
+                          className="flex-1 min-w-0 px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeFilterRow(cond.id)}
+                        title="Remove condition"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors shrink-0 text-lg leading-none"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={addFilterRow}
+              className="self-start text-xs text-[var(--primary)] hover:underline"
+            >
+              + Add condition
+            </button>
+
+            <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+              <button
+                type="button"
+                onClick={() => setFilterDraft({ logic: "AND", conditions: [] })}
+                className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+              >
+                Clear all
+              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setFilterDraft(null)}
+                  className="px-4 py-2 text-sm rounded-lg bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] border border-[var(--border)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={applyFilters}
+                  className="px-4 py-2 text-sm rounded-lg bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white font-medium transition-colors"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Policies modal */}
       {(policyLoading || policyUsers !== null) && (
         <div
@@ -1113,6 +1371,26 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
             >
               ⚙ Columns{hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ""}
             </button>
+            <button
+              type="button"
+              onClick={openFilterModal}
+              title="Filter rows by specific columns"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-colors border ${
+                filters.length > 0
+                  ? "bg-[var(--primary)]/10 border-[var(--primary)]/30 text-[var(--primary)] hover:bg-[var(--primary)]/20"
+                  : "bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] border-[var(--border)]"
+              }`}
+            >
+              <FilterIcon size={14} className="shrink-0" /> Filter{filters.length > 0 ? ` (${filters.length})` : ""}
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              title="Export the current search and filter results to CSV"
+              className="flex items-center gap-1.5 px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)]"
+            >
+              <DownloadIcon size={14} className="shrink-0" /> Export CSV
+            </button>
             {isAdmin && (
               <>
                 <button
@@ -1143,6 +1421,22 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
             )}
           </div>
         </div>
+        {filters.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-[var(--muted-foreground)]">
+              Filtering: {filters.map((f) => (
+                `${f.column} ${OPERATOR_LABELS[f.operator]}${NO_VALUE_OPERATORS.has(f.operator) ? "" : ` "${f.value}"`}`
+              )).join(` ${filterLogic} `)}
+            </span>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-xs text-[var(--primary)] hover:underline"
+            >
+              Clear
+            </button>
+          </div>
+        )}
         {pinnedRows.size > 0 && (
           <div className="flex items-center gap-3">
             <span className="text-sm text-amber-400 font-medium">
