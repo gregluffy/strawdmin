@@ -34,7 +34,16 @@ interface EncModal {
 export function RecordForm({ tableName, schema, initialData, mode, recordId, readOnly = false, columnPolicies = {} }: Props) {
   const router = useRouter();
   const [values, setValues] = useState<Record<string, unknown>>(() => {
-    if (initialData) return initialData;
+    if (initialData) {
+      // Convert temporal columns to their text form once, up front. Re-deriving it on every
+      // render would let the formatter rewrite whatever the user is mid-way through typing.
+      const seeded = { ...initialData };
+      for (const col of schema.columns) {
+        const kind = col.isJson ? null : temporalKind(col.type);
+        if (kind) seeded[col.name] = toDateInputValue(seeded[col.name], kind);
+      }
+      return seeded;
+    }
     const defaults: Record<string, unknown> = {};
     for (const col of schema.columns) {
       if (!col.isAutoIncrement) {
@@ -133,13 +142,11 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
         try { payload[col.name] = JSON.parse(v); }
         catch { payload[col.name] = v; }
       } else if (kind) {
-        // Send the wall-clock reading the user saw. Untouched values are still whatever the
-        // driver returned (often a Date), which would otherwise serialize to UTC and shift.
-        const normalized = toDateInputValue(v, kind);
-        if (normalized) payload[col.name] = fromDateInputValue(normalized, kind);
-        // Unparseable text goes to the database as typed so it reports the error, rather than
-        // being silently turned into null.
-        else payload[col.name] = typeof v === "string" && v.trim() ? v.trim() : null;
+        // Send the wall-clock reading the user saw, not a UTC-shifted Date. Text goes out as
+        // typed — if it is malformed, let the database reject it rather than guessing.
+        payload[col.name] = typeof v === "string"
+          ? fromDateInputValue(v, kind)
+          : fromDateInputValue(toDateInputValue(v, kind), kind);
       } else {
         payload[col.name] = v === "" ? null : v;
       }
@@ -320,7 +327,7 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
             ) : temporalKind(col.type) ? (
               <DateTimeField
                 kind={temporalKind(col.type)!}
-                value={toDateInputValue(value, temporalKind(col.type))}
+                value={typeof value === "string" ? value : ""}
                 onChange={(v) => setValue(col.name, v)}
                 disabled={isDisabled}
               />

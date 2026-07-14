@@ -50,6 +50,14 @@ describe("toDateInputValue", () => {
     expect(toDateInputValue(ms, "datetime")).toBe("2026-01-02T03:04:05");
   });
 
+  it("does not expand partially-typed input into a bogus date", () => {
+    // new Date("2") is 2001-02-01 — the parser must not be trusted with fragments.
+    expect(toDateInputValue("2", "datetime")).toBe("");
+    expect(toDateInputValue("20", "datetime")).toBe("");
+    expect(toDateInputValue("202", "date")).toBe("");
+    expect(toDateInputValue("2026-0", "datetime")).toBe("");
+  });
+
   it("returns empty for null, empty and unparseable values", () => {
     expect(toDateInputValue(null, "datetime")).toBe("");
     expect(toDateInputValue(undefined, "datetime")).toBe("");

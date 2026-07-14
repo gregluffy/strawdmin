@@ -46,10 +46,14 @@ export function toDateInputValue(value: unknown, kind: TemporalKind): string {
     if (m) {
       datePart = m[1];
       timePart = m[2] ?? "";
-    } else {
+    } else if (/\d{4}/.test(s)) {
+      // Only attempt a loose parse when there's at least a plausible year. Date's parser is far
+      // too eager otherwise — new Date("2") is 2001-02-01, which would rewrite half-typed input.
       const d = new Date(s);
       if (Number.isNaN(d.getTime())) return "";
       ({ date: datePart, time: timePart } = localParts(d));
+    } else {
+      return "";
     }
   } else {
     return "";
