@@ -315,6 +315,8 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
             ) : temporalKind(col.type) ? (
               <input
                 type={temporalKind(col.type) === "date" ? "date" : "datetime-local"}
+                // Chromium renders the picker in this locale's conventions — 24h clock, no AM/PM.
+                lang="en-GB"
                 step={1}
                 value={toDateInputValue(value, temporalKind(col.type))}
                 onChange={(e) => setValue(col.name, e.target.value)}

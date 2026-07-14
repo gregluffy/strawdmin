@@ -10,6 +10,13 @@ export function formatRelativeTime(isoString: string): string {
   return `${d}d ago`;
 }
 
+/** Local date + time on a 24-hour clock, never AM/PM. */
+export function formatDateTime(value: string | number | Date): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, { hour12: false });
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

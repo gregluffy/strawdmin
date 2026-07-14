@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { BackupMeta } from "@/lib/types";
-import { formatSize } from "@/lib/format";
+import { formatSize, formatDateTime } from "@/lib/format";
 import { basePath } from "@/lib/api-url";
 
 export default function BackupsPage() {
@@ -184,7 +184,7 @@ export default function BackupsPage() {
                   <td className="px-4 py-3 font-mono text-xs text-[var(--foreground)]">{b.name}</td>
                   <td className="px-4 py-3 text-[var(--muted-foreground)]">{formatSize(b.size)}</td>
                   <td className="px-4 py-3 text-[var(--muted-foreground)] text-xs">
-                    {new Date(b.createdAt).toLocaleString()}
+                    {formatDateTime(b.createdAt)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center gap-2 justify-end">

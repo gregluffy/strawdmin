@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { basePath } from "@/lib/api-url";
-import { formatRelativeTime } from "@/lib/format";
+import { formatRelativeTime, formatDateTime } from "@/lib/format";
 import type { AuditLog } from "@/lib/types";
 
 const ACTION_STYLES: Record<string, string> = {
@@ -219,7 +219,7 @@ export default function AuditPage() {
                   <td className="px-4 py-3 text-[var(--muted-foreground)] text-xs">
                     {log.ip ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-right text-[var(--muted-foreground)] text-xs" title={new Date(log.created_at).toLocaleString()}>
+                  <td className="px-4 py-3 text-right text-[var(--muted-foreground)] text-xs" title={formatDateTime(log.created_at)}>
                     {formatRelativeTime(log.created_at)}
                   </td>
                 </tr>,
