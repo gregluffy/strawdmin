@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { basePath } from "@/lib/api-url";
+import { formatDateTime } from "@/lib/format";
 
 interface User {
   id: number;
@@ -164,7 +165,7 @@ export default function UsersPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-[var(--muted-foreground)] text-xs">
-                  {new Date(u.created_at).toLocaleString()}
+                  {formatDateTime(u.created_at)}
                 </td>
                 <td className="px-4 py-3 text-right">
                   {editId === u.id ? (

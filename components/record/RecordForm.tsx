@@ -6,6 +6,8 @@ import dynamic from "next/dynamic";
 import type { SchemaTable } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
 import { getAlgorithmLabel } from "@/lib/crypto";
+import { temporalKind, toDateInputValue, fromDateInputValue } from "@/lib/datetime";
+import { DateTimeField } from "@/components/record/DateTimeField";
 import { LockIcon } from "@/components/ui/icons";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
@@ -32,7 +34,16 @@ interface EncModal {
 export function RecordForm({ tableName, schema, initialData, mode, recordId, readOnly = false, columnPolicies = {} }: Props) {
   const router = useRouter();
   const [values, setValues] = useState<Record<string, unknown>>(() => {
-    if (initialData) return initialData;
+    if (initialData) {
+      // Convert temporal columns to their text form once, up front. Re-deriving it on every
+      // render would let the formatter rewrite whatever the user is mid-way through typing.
+      const seeded = { ...initialData };
+      for (const col of schema.columns) {
+        const kind = col.isJson ? null : temporalKind(col.type);
+        if (kind) seeded[col.name] = toDateInputValue(seeded[col.name], kind);
+      }
+      return seeded;
+    }
     const defaults: Record<string, unknown> = {};
     for (const col of schema.columns) {
       if (!col.isAutoIncrement) {
@@ -126,9 +137,16 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
       if (col.isAutoIncrement && mode === "create") continue;
       if (col.isPrimary && mode === "edit") continue;
       const v = values[col.name];
+      const kind = col.isJson ? null : temporalKind(col.type);
       if (col.isJson && typeof v === "string") {
         try { payload[col.name] = JSON.parse(v); }
         catch { payload[col.name] = v; }
+      } else if (kind) {
+        // Send the wall-clock reading the user saw, not a UTC-shifted Date. Text goes out as
+        // typed — if it is malformed, let the database reject it rather than guessing.
+        payload[col.name] = typeof v === "string"
+          ? fromDateInputValue(v, kind)
+          : fromDateInputValue(toDateInputValue(v, kind), kind);
       } else {
         payload[col.name] = v === "" ? null : v;
       }
@@ -306,13 +324,12 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
                   {value ? "true" : "false"}
                 </label>
               </div>
-            ) : col.type.toLowerCase().includes("date") || col.type.toLowerCase().includes("timestamp") ? (
-              <input
-                type="datetime-local"
-                value={typeof value === "string" ? value.slice(0, 16) : ""}
-                onChange={(e) => setValue(col.name, e.target.value)}
+            ) : temporalKind(col.type) ? (
+              <DateTimeField
+                kind={temporalKind(col.type)!}
+                value={typeof value === "string" ? value : ""}
+                onChange={(v) => setValue(col.name, v)}
                 disabled={isDisabled}
-                className="w-full px-3 py-2.5 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] text-sm disabled:opacity-60"
               />
             ) : col.type.toLowerCase().includes("int") || col.type.toLowerCase().includes("float") || col.type.toLowerCase().includes("decimal") || col.type.toLowerCase().includes("numeric") || col.type.toLowerCase().includes("real") || col.type.toLowerCase().includes("double") ? (
               <input
