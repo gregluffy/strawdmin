@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import type { SchemaTable } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
 import { getAlgorithmLabel } from "@/lib/crypto";
+import { temporalKind, toDateInputValue, fromDateInputValue } from "@/lib/datetime";
 import { LockIcon } from "@/components/ui/icons";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
@@ -126,9 +127,14 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
       if (col.isAutoIncrement && mode === "create") continue;
       if (col.isPrimary && mode === "edit") continue;
       const v = values[col.name];
+      const kind = col.isJson ? null : temporalKind(col.type);
       if (col.isJson && typeof v === "string") {
         try { payload[col.name] = JSON.parse(v); }
         catch { payload[col.name] = v; }
+      } else if (kind) {
+        // Send the wall-clock reading the user saw. Untouched values are still whatever the
+        // driver returned (often a Date), which would otherwise serialize to UTC and shift.
+        payload[col.name] = fromDateInputValue(toDateInputValue(v, kind), kind);
       } else {
         payload[col.name] = v === "" ? null : v;
       }
@@ -306,10 +312,11 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
                   {value ? "true" : "false"}
                 </label>
               </div>
-            ) : col.type.toLowerCase().includes("date") || col.type.toLowerCase().includes("timestamp") ? (
+            ) : temporalKind(col.type) ? (
               <input
-                type="datetime-local"
-                value={typeof value === "string" ? value.slice(0, 16) : ""}
+                type={temporalKind(col.type) === "date" ? "date" : "datetime-local"}
+                step={1}
+                value={toDateInputValue(value, temporalKind(col.type))}
                 onChange={(e) => setValue(col.name, e.target.value)}
                 disabled={isDisabled}
                 className="w-full px-3 py-2.5 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] text-sm disabled:opacity-60"
