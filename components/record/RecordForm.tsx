@@ -7,6 +7,7 @@ import type { SchemaTable } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
 import { getAlgorithmLabel } from "@/lib/crypto";
 import { temporalKind, toDateInputValue, fromDateInputValue } from "@/lib/datetime";
+import { DateTimeField } from "@/components/record/DateTimeField";
 import { LockIcon } from "@/components/ui/icons";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
@@ -134,7 +135,11 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
       } else if (kind) {
         // Send the wall-clock reading the user saw. Untouched values are still whatever the
         // driver returned (often a Date), which would otherwise serialize to UTC and shift.
-        payload[col.name] = fromDateInputValue(toDateInputValue(v, kind), kind);
+        const normalized = toDateInputValue(v, kind);
+        if (normalized) payload[col.name] = fromDateInputValue(normalized, kind);
+        // Unparseable text goes to the database as typed so it reports the error, rather than
+        // being silently turned into null.
+        else payload[col.name] = typeof v === "string" && v.trim() ? v.trim() : null;
       } else {
         payload[col.name] = v === "" ? null : v;
       }
@@ -313,15 +318,11 @@ export function RecordForm({ tableName, schema, initialData, mode, recordId, rea
                 </label>
               </div>
             ) : temporalKind(col.type) ? (
-              <input
-                type={temporalKind(col.type) === "date" ? "date" : "datetime-local"}
-                // Chromium renders the picker in this locale's conventions — 24h clock, no AM/PM.
-                lang="en-GB"
-                step={1}
+              <DateTimeField
+                kind={temporalKind(col.type)!}
                 value={toDateInputValue(value, temporalKind(col.type))}
-                onChange={(e) => setValue(col.name, e.target.value)}
+                onChange={(v) => setValue(col.name, v)}
                 disabled={isDisabled}
-                className="w-full px-3 py-2.5 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] text-sm disabled:opacity-60"
               />
             ) : col.type.toLowerCase().includes("int") || col.type.toLowerCase().includes("float") || col.type.toLowerCase().includes("decimal") || col.type.toLowerCase().includes("numeric") || col.type.toLowerCase().includes("real") || col.type.toLowerCase().includes("double") ? (
               <input
