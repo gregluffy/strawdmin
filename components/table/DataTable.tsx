@@ -87,6 +87,7 @@ interface Props {
 
 export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolicies = {} }: Props) {
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [result, setResult] = useState<PaginatedResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -266,6 +267,27 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
     const ro = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
     ro.observe(el);
     return () => ro.disconnect();
+  }, []);
+
+  // When the tab returns from being backgrounded/idle, Chromium can drop the
+  // composited layer for this overflow+sticky-header scroll container and fail
+  // to repaint the leftmost (Actions) column until a reflow is forced. Nudge a
+  // reflow on visibility/bfcache restore so the buttons don't stay blank.
+  useEffect(() => {
+    function forceRepaint() {
+      if (document.visibilityState !== "visible") return;
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      el.style.transform = "translateZ(0)";
+      void el.offsetHeight; // read forces reflow
+      el.style.transform = "";
+    }
+    document.addEventListener("visibilitychange", forceRepaint);
+    window.addEventListener("pageshow", forceRepaint);
+    return () => {
+      document.removeEventListener("visibilitychange", forceRepaint);
+      window.removeEventListener("pageshow", forceRepaint);
+    };
   }, []);
 
   function handleSort(col: string) {
@@ -1486,6 +1508,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
       {/* Table */}
       <div className="border border-[var(--border)] rounded-xl overflow-hidden shadow-sm mt-4">
         <div
+          ref={scrollContainerRef}
           className="overflow-auto"
           style={{ maxHeight: `calc(100vh - ${headerHeight}px - 12rem)` }}
         >
