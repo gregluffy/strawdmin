@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser } from "@/lib/request-auth";
-import { listDbConnections, createDbConnection } from "@/lib/internal-db";
+import { listDbConnections, listDbConnectionsForUser, createDbConnection } from "@/lib/internal-db";
 import { getActiveConnection } from "@/lib/active-connection";
 import type { DbType } from "@/lib/types";
 
@@ -9,7 +9,13 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const connections = await listDbConnections();
+    // `?all=1` lets an admin see every connection regardless of their own grants —
+    // needed by the user-management screen so they can hand out access to (and
+    // recover access to) connections they have hidden from themselves.
+    const wantsAll = req.nextUrl.searchParams.get("all") === "1" && user.role === "admin";
+    const connections = wantsAll
+      ? await listDbConnections()
+      : await listDbConnectionsForUser(Number(user.sub));
     const activeConn = await getActiveConnection(req);
 
     return NextResponse.json({

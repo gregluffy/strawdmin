@@ -6,7 +6,7 @@ import type { PaginatedResult, SchemaTable, Column, TablePolicy, FilterCondition
 import { TEXTISH_TYPES } from "@/lib/types";
 import { basePath } from "@/lib/api-url";
 import { getAlgorithmLabel } from "@/lib/crypto";
-import { UsersIcon, LockIcon, FilterIcon, DownloadIcon } from "@/components/ui/icons";
+import { UsersIcon, LockIcon, FilterIcon, DownloadIcon, RefreshIcon } from "@/components/ui/icons";
 
 const OPERATOR_LABELS: Record<FilterOperator, string> = {
   eq: "=",
@@ -99,6 +99,8 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [fkModal, setFkModal] = useState<FkModal | null>(null);
   const [pinnedRows, setPinnedRows] = useState<Set<string>>(new Set());
 
@@ -233,8 +235,9 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
     }
   }, [result, fkSettings, schema.columns]);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // `silent` re-fetches in place (refresh button) instead of blanking the table body
+  const fetchData = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (silent) setRefreshing(true); else setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams({
@@ -251,10 +254,12 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
       const res = await fetch(`${basePath}/api/tables/${tableName}?${params}`);
       if (!res.ok) throw new Error(await res.text());
       setResult(await res.json());
+      setLastRefreshed(new Date());
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [tableName, search, sort, dir, page, filters, filterLogic]);
 
@@ -1473,13 +1478,13 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
             </button>
           </div>
         )}
-        <form onSubmit={handleSearch} className="flex items-center gap-2 max-w-sm">
+        <form onSubmit={handleSearch} className="flex items-center gap-2 max-w-md">
           <input
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search..."
-            className="flex-1 px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+            className="flex-1 min-w-0 px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
           />
           <button
             type="submit"
@@ -1487,11 +1492,26 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
           >
             Search
           </button>
+          <button
+            type="button"
+            onClick={() => fetchData({ silent: true })}
+            disabled={loading || refreshing}
+            title={
+              lastRefreshed
+                ? `Reload rows — last updated ${lastRefreshed.toLocaleTimeString()}`
+                : "Reload rows"
+            }
+            aria-label="Refresh table"
+            className="flex items-center gap-1.5 px-3 py-2 bg-[var(--secondary)] hover:bg-[var(--accent)] text-[var(--foreground)] rounded-lg text-sm transition-colors border border-[var(--border)] disabled:opacity-50 shrink-0"
+          >
+            <RefreshIcon size={14} className={refreshing ? "animate-spin" : ""} />
+            Refresh
+          </button>
           {search && (
             <button
               type="button"
               onClick={() => { setSearch(""); setSearchInput(""); setPage(1); }}
-              className="px-3 py-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-sm"
+              className="px-3 py-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] text-sm shrink-0"
             >
               ✕ Clear
             </button>

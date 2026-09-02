@@ -23,6 +23,11 @@ import {
   getDbConnection,
   updateDbConnection,
   deleteDbConnection,
+  getUserDbAccess,
+  setUserDbAccess,
+  getAllUserDbAccess,
+  isConnectionAllowedForUser,
+  listDbConnectionsForUser,
 } from "@/lib/internal-db";
 
 const CONN_ID = 1;
@@ -542,5 +547,140 @@ describe("settings isolation per connId", () => {
 
     expect(settings1[0]?.display_path).toEqual(["name"]);
     expect(settings2[0]?.display_path).toEqual(["email"]);
+  });
+});
+
+// ── Per-user DB connection access ───────────────────────────────────────────
+
+async function seedUserAndConns() {
+  const user = await createUser("alice", "hash", "user");
+  const a = await createDbConnection("Alpha", "postgres", "pg://a");
+  const b = await createDbConnection("Beta", "mysql", "my://b");
+  return { user, a, b };
+}
+
+describe("getUserDbAccess", () => {
+  it("defaults to unrestricted for a new user", async () => {
+    const user = await createUser("alice", "hash", "user");
+    expect(await getUserDbAccess(user.id)).toEqual({ mode: "all", conn_ids: [] });
+  });
+
+  it("returns unrestricted for an unknown user id", async () => {
+    expect(await getUserDbAccess(999)).toEqual({ mode: "all", conn_ids: [] });
+  });
+});
+
+describe("setUserDbAccess", () => {
+  it("stores a restricted grant list", async () => {
+    const { user, a } = await seedUserAndConns();
+    expect(await setUserDbAccess(user.id, "restricted", [a.id])).toBe(true);
+    expect(await getUserDbAccess(user.id)).toEqual({ mode: "restricted", conn_ids: [a.id] });
+  });
+
+  it("replaces the previous grant list rather than appending", async () => {
+    const { user, a, b } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", [a.id, b.id]);
+    await setUserDbAccess(user.id, "restricted", [b.id]);
+    expect(await getUserDbAccess(user.id)).toEqual({ mode: "restricted", conn_ids: [b.id] });
+  });
+
+  it("dedupes repeated connection ids", async () => {
+    const { user, a } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", [a.id, a.id]);
+    expect((await getUserDbAccess(user.id)).conn_ids).toEqual([a.id]);
+  });
+
+  it("supports restricting a user to nothing", async () => {
+    const { user, a } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", [a.id]);
+    await setUserDbAccess(user.id, "restricted", []);
+    expect(await getUserDbAccess(user.id)).toEqual({ mode: "restricted", conn_ids: [] });
+  });
+
+  it("clears the grant list when switching back to 'all'", async () => {
+    const { user, a } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", [a.id]);
+    await setUserDbAccess(user.id, "all", [a.id]);
+    expect(await getUserDbAccess(user.id)).toEqual({ mode: "all", conn_ids: [] });
+  });
+
+  it("returns false for an unknown user id", async () => {
+    expect(await setUserDbAccess(999, "restricted", [])).toBe(false);
+  });
+
+  it("applies to admins as well as regular users", async () => {
+    const admin = await createUser("root", "hash", "admin");
+    const a = await createDbConnection("Alpha", "postgres", "pg://a");
+    await createDbConnection("Beta", "mysql", "my://b");
+    await setUserDbAccess(admin.id, "restricted", [a.id]);
+    const visible = await listDbConnectionsForUser(admin.id);
+    expect(visible.map((c) => c.name)).toEqual(["Alpha"]);
+  });
+});
+
+describe("isConnectionAllowedForUser", () => {
+  it("allows everything while the user is unrestricted", async () => {
+    const { user, a, b } = await seedUserAndConns();
+    expect(await isConnectionAllowedForUser(user.id, a.id)).toBe(true);
+    expect(await isConnectionAllowedForUser(user.id, b.id)).toBe(true);
+  });
+
+  it("allows only granted connections once restricted", async () => {
+    const { user, a, b } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", [a.id]);
+    expect(await isConnectionAllowedForUser(user.id, a.id)).toBe(true);
+    expect(await isConnectionAllowedForUser(user.id, b.id)).toBe(false);
+  });
+});
+
+describe("listDbConnectionsForUser", () => {
+  it("returns every connection for an unrestricted user", async () => {
+    const { user } = await seedUserAndConns();
+    expect((await listDbConnectionsForUser(user.id)).map((c) => c.name)).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("returns only granted connections for a restricted user", async () => {
+    const { user, b } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", [b.id]);
+    expect((await listDbConnectionsForUser(user.id)).map((c) => c.name)).toEqual(["Beta"]);
+  });
+
+  it("returns nothing for a user restricted to an empty list", async () => {
+    const { user } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", []);
+    expect(await listDbConnectionsForUser(user.id)).toEqual([]);
+  });
+});
+
+describe("access cleanup", () => {
+  it("drops grants when the connection is deleted", async () => {
+    const { user, a, b } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", [a.id, b.id]);
+    await deleteDbConnection(a.id);
+    expect((await getUserDbAccess(user.id)).conn_ids).toEqual([b.id]);
+  });
+
+  it("drops grants when the user is deleted", async () => {
+    const { user, a } = await seedUserAndConns();
+    await setUserDbAccess(user.id, "restricted", [a.id]);
+    await deleteUser(user.id);
+    const all = await getAllUserDbAccess();
+    expect(all.has(user.id)).toBe(false);
+  });
+});
+
+describe("getAllUserDbAccess / getUsers", () => {
+  it("reports each user's access alongside the user list", async () => {
+    const { user, a } = await seedUserAndConns();
+    const bob = await createUser("bob", "hash", "user");
+    await setUserDbAccess(user.id, "restricted", [a.id]);
+
+    const all = await getAllUserDbAccess();
+    expect(all.get(user.id)).toEqual({ mode: "restricted", conn_ids: [a.id] });
+    expect(all.get(bob.id)).toEqual({ mode: "all", conn_ids: [] });
+
+    const users = await getUsers();
+    expect(users.find((u) => u.username === "alice")).toMatchObject({ mode: "restricted", conn_ids: [a.id] });
+    expect(users.find((u) => u.username === "bob")).toMatchObject({ mode: "all", conn_ids: [] });
   });
 });

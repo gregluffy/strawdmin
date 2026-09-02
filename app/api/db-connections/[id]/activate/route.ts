@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser } from "@/lib/request-auth";
-import { getDbConnection } from "@/lib/internal-db";
+import { getDbConnection, isConnectionAllowedForUser } from "@/lib/internal-db";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -15,6 +15,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const conn = await getDbConnection(connId);
     if (!conn) return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+
+    if (!(await isConnectionAllowedForUser(Number(user.sub), connId))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const isSecure = process.env.SECURE_COOKIES !== "false";
     const response = NextResponse.json({ ok: true, id: conn.id, name: conn.name });
