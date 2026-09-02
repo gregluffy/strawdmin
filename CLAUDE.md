@@ -48,7 +48,8 @@ SQL generation helpers (identifier quoting, parameter placeholders, binary seria
 
 ### 2. Internal database (app state)
 A local SQLite file at `data/app.db` (via `@libsql/client`). Managed entirely in [lib/internal-db.ts](lib/internal-db.ts). Stores:
-- **users** — bcrypt-hashed passwords, roles (`admin` | `user`)
+- **users** — bcrypt-hashed passwords, roles (`admin` | `user`), `db_access_mode` (`all` | `restricted`)
+- **user_db_access** — which connections a `restricted` user may see. Enforced centrally by `resolveActiveConnection()` in [lib/connection-access.ts](lib/connection-access.ts), which both `getActiveConnection()` (route handlers) and `getServerActiveConnection()` (server components) delegate to, so a hidden connection is unreachable via the `active_db_id` cookie or the single-connection fallback. Applies to admins too; `GET /api/db-connections?all=1` is the admin-only escape hatch used by the users screen
 - **fk_display_settings** — per-table FK column → display field mappings
 - **field_encryption_settings** — per-column write-time hashing config (SHA256/SHA512 + optional salt column); UI calls this "write-time hashing", DB table name kept for backwards compatibility
 
@@ -76,7 +77,7 @@ First-run flow: `app/page.tsx` checks `isFirstRun()` and redirects to `/setup` i
   - `GET|POST /api/tables/[table]` — list/create rows
   - `GET|PUT|DELETE /api/tables/[table]/[id]` — read/update/delete a row
   - `GET|POST /api/backups`, `GET|DELETE|POST /api/backups/[name]/restore`
-  - `GET|POST /api/users`, `PUT|DELETE /api/users/[id]`
+  - `GET|POST /api/users`, `PUT|DELETE /api/users/[id]`, `GET|PUT /api/users/[id]/db-access`
   - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
   - `GET|POST /api/fk-settings`, `GET|POST /api/fk-display`, `GET /api/fk-options/[table]`
   - `GET|POST /api/encryption-settings`, `POST /api/encrypt`

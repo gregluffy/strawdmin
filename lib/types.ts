@@ -1,5 +1,8 @@
 export type DbType = "postgres" | "mysql" | "mariadb" | "mssql" | "sqlite";
 
+/** Whether a user sees every DB connection ("all") or only the ones granted to them. */
+export type DbAccessMode = "all" | "restricted";
+
 export interface DbConnection {
   id: number;
   name: string;

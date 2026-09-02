@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import type { User, FkDisplaySetting, EncryptionSetting, AuditLog, DbConnection, DbType } from "./types";
+import type { User, FkDisplaySetting, EncryptionSetting, AuditLog, DbConnection, DbType, DbAccessMode } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { createClient } = require("@libsql/client");
@@ -39,6 +39,15 @@ async function ensureTables(db: LibsqlClient): Promise<void> {
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
     created_at TEXT NOT NULL
+  )`);
+  // Per-user visibility of DB connections. `users.db_access_mode` decides whether the
+  // rows here apply at all: 'all' (default) ignores them, 'restricted' limits the user
+  // to exactly the connections listed. Added via ALTER TABLE for existing installs.
+  try { await db.execute(`ALTER TABLE users ADD COLUMN db_access_mode TEXT NOT NULL DEFAULT 'all'`); } catch { /* already exists */ }
+  await db.execute(`CREATE TABLE IF NOT EXISTS user_db_access (
+    user_id INTEGER NOT NULL,
+    conn_id INTEGER NOT NULL,
+    PRIMARY KEY (user_id, conn_id)
   )`);
   await db.execute(`CREATE TABLE IF NOT EXISTS db_connections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -280,7 +289,65 @@ export async function deleteDbConnection(id: number): Promise<boolean> {
   const before = await c.execute({ sql: "SELECT id FROM db_connections WHERE id = ?", args: [id] });
   if (before.rows.length === 0) return false;
   await c.execute({ sql: "DELETE FROM db_connections WHERE id = ?", args: [id] });
+  await c.execute({ sql: "DELETE FROM user_db_access WHERE conn_id = ?", args: [id] });
   return true;
+}
+
+// ── Per-user DB connection access ───────────────────────────────────────────
+
+export type UserDbAccess = {
+  mode: DbAccessMode;
+  conn_ids: number[];
+};
+
+const UNRESTRICTED: UserDbAccess = { mode: "all", conn_ids: [] };
+
+export async function getUserDbAccess(userId: number): Promise<UserDbAccess> {
+  const c = await db();
+  const modeRows = await c.execute({ sql: "SELECT db_access_mode FROM users WHERE id = ?", args: [userId] });
+  if (modeRows.rows.length === 0) return { ...UNRESTRICTED };
+  const mode: DbAccessMode = modeRows.rows[0].db_access_mode === "restricted" ? "restricted" : "all";
+  const rows = await c.execute({ sql: "SELECT conn_id FROM user_db_access WHERE user_id = ? ORDER BY conn_id", args: [userId] });
+  return { mode, conn_ids: rows.rows.map((r) => Number(r.conn_id)) };
+}
+
+export async function setUserDbAccess(userId: number, mode: DbAccessMode, connIds: number[]): Promise<boolean> {
+  const c = await db();
+  const exists = await c.execute({ sql: "SELECT id FROM users WHERE id = ?", args: [userId] });
+  if (exists.rows.length === 0) return false;
+  await c.execute({ sql: "UPDATE users SET db_access_mode = ? WHERE id = ?", args: [mode, userId] });
+  await c.execute({ sql: "DELETE FROM user_db_access WHERE user_id = ?", args: [userId] });
+  if (mode === "restricted") {
+    for (const connId of [...new Set(connIds)]) {
+      await c.execute({ sql: "INSERT INTO user_db_access (user_id, conn_id) VALUES (?, ?)", args: [userId, connId] });
+    }
+  }
+  return true;
+}
+
+/** Access rows for every user, keyed by user id — avoids an N+1 on the users page. */
+export async function getAllUserDbAccess(): Promise<Map<number, UserDbAccess>> {
+  const c = await db();
+  const out = new Map<number, UserDbAccess>();
+  const users = await c.execute("SELECT id, db_access_mode FROM users");
+  for (const u of users.rows) {
+    out.set(Number(u.id), { mode: u.db_access_mode === "restricted" ? "restricted" : "all", conn_ids: [] });
+  }
+  const rows = await c.execute("SELECT user_id, conn_id FROM user_db_access ORDER BY conn_id");
+  for (const r of rows.rows) out.get(Number(r.user_id))?.conn_ids.push(Number(r.conn_id));
+  return out;
+}
+
+export async function isConnectionAllowedForUser(userId: number, connId: number): Promise<boolean> {
+  const access = await getUserDbAccess(userId);
+  return access.mode === "all" || access.conn_ids.includes(connId);
+}
+
+export async function listDbConnectionsForUser(userId: number): Promise<DbConnection[]> {
+  const [connections, access] = await Promise.all([listDbConnections(), getUserDbAccess(userId)]);
+  if (access.mode === "all") return connections;
+  const allowed = new Set(access.conn_ids);
+  return connections.filter((c) => allowed.has(c.id));
 }
 
 // ── User functions ──────────────────────────────────────────────────────────
@@ -295,15 +362,22 @@ export async function isFirstRun(): Promise<boolean> {
   }
 }
 
-export async function getUsers(): Promise<Omit<User, "password_hash">[]> {
+export async function getUsers(): Promise<(Omit<User, "password_hash"> & UserDbAccess)[]> {
   const c = await db();
   const rows = await c.execute("SELECT id, username, role, created_at FROM users ORDER BY id");
-  return rows.rows.map((r) => ({
-    id: Number(r.id),
-    username: String(r.username),
-    role: r.role as "admin" | "user",
-    created_at: String(r.created_at),
-  }));
+  const access = await getAllUserDbAccess();
+  return rows.rows.map((r) => {
+    const id = Number(r.id);
+    const a = access.get(id) ?? UNRESTRICTED;
+    return {
+      id,
+      username: String(r.username),
+      role: r.role as "admin" | "user",
+      created_at: String(r.created_at),
+      mode: a.mode,
+      conn_ids: a.conn_ids,
+    };
+  });
 }
 
 export async function getUserByUsername(username: string): Promise<User | null> {
@@ -375,6 +449,7 @@ export async function deleteUser(id: number): Promise<boolean> {
   const before = await c.execute({ sql: "SELECT id FROM users WHERE id = ?", args: [id] });
   if (before.rows.length === 0) return false;
   await c.execute({ sql: "DELETE FROM users WHERE id = ?", args: [id] });
+  await c.execute({ sql: "DELETE FROM user_db_access WHERE user_id = ?", args: [id] });
   return true;
 }
 

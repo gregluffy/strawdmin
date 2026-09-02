@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { getUserByUsername, logAudit, getPinnedDbConnection } from "@/lib/internal-db";
+import { getUserByUsername, logAudit, getPinnedDbConnection, isConnectionAllowedForUser } from "@/lib/internal-db";
 import { signToken } from "@/lib/auth";
 import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess } from "@/lib/login-limiter";
 
@@ -50,9 +50,9 @@ export async function POST(req: NextRequest) {
       maxAge: 60 * 60 * 24 * 7,
       path: "/",
     });
-    // Auto-select the pinned database on login
+    // Auto-select the pinned database on login — unless it's hidden from this user
     const pinned = await getPinnedDbConnection();
-    if (pinned) {
+    if (pinned && (await isConnectionAllowedForUser(user.id, pinned.id))) {
       response.cookies.set("active_db_id", String(pinned.id), {
         httpOnly: false,
         secure: isSecure,
