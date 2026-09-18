@@ -71,7 +71,8 @@ export async function buildSearchAndFilterClause(opts: {
 
       if (setting.display_path.length === 1) {
         const [displayField] = setting.display_path;
-        if (!refSchema.columns.some((c) => c.name === displayField)) continue;
+        const displayCol = refSchema.columns.find((c) => c.name === displayField);
+        if (!displayCol || !isTextishType(displayCol.type)) continue;
         const alias = `_fk${joinIdx++}`;
         fkJoins.push(
           `LEFT JOIN ${driver.quote(col.fk.table)} ${alias} ON ${driver.quote(table)}.${driver.quote(col.name)} = ${alias}.${driver.quote(col.fk.column)}`
@@ -82,7 +83,8 @@ export async function buildSearchAndFilterClause(opts: {
         const hopColDef = refSchema.columns.find((c) => c.name === hopCol);
         if (!hopColDef?.fk) continue;
         const hop2Schema = await getTable(hopColDef.fk.table, conn);
-        if (!hop2Schema?.columns.some((c) => c.name === displayField)) continue;
+        const displayCol = hop2Schema?.columns.find((c) => c.name === displayField);
+        if (!displayCol || !isTextishType(displayCol.type)) continue;
         const alias1 = `_fk${joinIdx++}`;
         fkJoins.push(
           `LEFT JOIN ${driver.quote(col.fk.table)} ${alias1} ON ${driver.quote(table)}.${driver.quote(col.name)} = ${alias1}.${driver.quote(col.fk.column)}`
