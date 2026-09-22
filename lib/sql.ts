@@ -1,54 +1,83 @@
-import { TEXTISH_TYPES, type FilterCondition, type FilterLogic, type FilterOperator } from "./types";
+import type { Column, FilterCondition, FilterLogic } from "./types";
+import { columnSearchKind, escapeLike, likeSql, likeTarget, parseDecimalTerm, parseIntegerTerm } from "./search";
 
-export function isTextishType(colType: string): boolean {
-  const t = colType.toLowerCase();
-  return TEXTISH_TYPES.some((needle) => t.includes(needle));
-}
+export { isTextishType } from "./search";
 
-const NO_VALUE_OPERATORS = new Set<FilterOperator>(["is_null", "is_not_null"]);
+/** Thrown for user-supplied filter values that cannot apply to the column's type. */
+export class FilterValidationError extends Error {}
 
 /**
  * Builds a parenthesized WHERE fragment from a flat list of column conditions
- * joined by a single AND/OR logic operator. Columns not present in
- * `validColumns` are silently dropped (defense against stale/forged input).
+ * joined by a single AND/OR logic operator. Columns not present in `columns`
+ * are silently dropped (defense against stale/forged/hidden input).
+ *
+ * Substring operators cast non-text columns to text (Postgres has no implicit
+ * `integer LIKE text`), are case-insensitive, and match user input literally.
+ * Comparison operators on numeric columns reject non-numeric values up front
+ * instead of letting the database error out.
  */
-export function buildFilterClause(
-  quote: (s: string) => string,
-  placeholder: (i: number) => string,
-  conditions: FilterCondition[],
-  logic: FilterLogic,
-  validColumns: Set<string>,
-  queryParams: unknown[],
-  tableRef = ""
-): string | null {
+export function buildFilterClause(opts: {
+  dbType: string;
+  quote: (s: string) => string;
+  placeholder: (i: number) => string;
+  conditions: FilterCondition[];
+  logic: FilterLogic;
+  columns: Map<string, Pick<Column, "name" | "type" | "isJson">>;
+  queryParams: unknown[];
+  tableRef?: string;
+}): string | null {
+  const { dbType, quote, placeholder, conditions, logic, columns, queryParams, tableRef = "" } = opts;
   const parts: string[] = [];
+  const push = (value: unknown) => {
+    const idx = queryParams.length;
+    queryParams.push(value);
+    return placeholder(idx);
+  };
+
   for (const cond of conditions) {
-    if (!validColumns.has(cond.column)) continue;
+    const col = columns.get(cond.column);
+    if (!col) continue;
     const colSql = `${tableRef}${quote(cond.column)}`;
 
     if (cond.operator === "is_null") { parts.push(`${colSql} IS NULL`); continue; }
     if (cond.operator === "is_not_null") { parts.push(`${colSql} IS NOT NULL`); continue; }
-    if (NO_VALUE_OPERATORS.has(cond.operator)) continue;
     if (!cond.value) continue;
 
-    let opSql: string;
-    let value: unknown = cond.value;
+    const kind = columnSearchKind(col, dbType);
+    const escaped = escapeLike(cond.value, dbType);
     switch (cond.operator) {
-      case "eq": opSql = "="; break;
-      case "neq": opSql = "!="; break;
-      case "gt": opSql = ">"; break;
-      case "gte": opSql = ">="; break;
-      case "lt": opSql = "<"; break;
-      case "lte": opSql = "<="; break;
-      case "contains": opSql = "LIKE"; value = `%${cond.value}%`; break;
-      case "not_contains": opSql = "NOT LIKE"; value = `%${cond.value}%`; break;
-      case "starts_with": opSql = "LIKE"; value = `${cond.value}%`; break;
-      case "ends_with": opSql = "LIKE"; value = `%${cond.value}`; break;
-      default: continue;
+      case "contains":
+      case "not_contains":
+      case "starts_with":
+      case "ends_with": {
+        const pattern =
+          cond.operator === "starts_with" ? `${escaped}%`
+          : cond.operator === "ends_with" ? `%${escaped}`
+          : `%${escaped}%`;
+        const target = likeTarget(colSql, kind === "none" ? "cast" : kind, dbType);
+        parts.push(likeSql(target, push(pattern), dbType, cond.operator === "not_contains"));
+        continue;
+      }
+      case "eq": case "neq": case "gt": case "gte": case "lt": case "lte": {
+        const opSql = { eq: "=", neq: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" }[cond.operator];
+        let value: unknown = cond.value;
+        let target = colSql;
+        if (kind === "integer" || kind === "decimal") {
+          const n = kind === "integer" ? parseIntegerTerm(cond.value.trim(), col.type, dbType) : parseDecimalTerm(cond.value.trim());
+          if (n === null) {
+            throw new FilterValidationError(`"${cond.value}" is not a valid ${kind === "integer" ? "integer" : "number"} for column ${cond.column}`);
+          }
+          value = n;
+        } else if (kind === "cast" && dbType === "postgres") {
+          // uuid/enum/inet… reject malformed literals in Postgres; compare as text instead.
+          target = likeTarget(colSql, kind, dbType);
+        }
+        parts.push(`${target} ${opSql} ${push(value)}`);
+        continue;
+      }
+      default:
+        continue;
     }
-    const idx = queryParams.length;
-    queryParams.push(value);
-    parts.push(`${colSql} ${opSql} ${placeholder(idx)}`);
   }
   if (parts.length === 0) return null;
   return parts.length === 1 ? parts[0] : `(${parts.join(` ${logic} `)})`;

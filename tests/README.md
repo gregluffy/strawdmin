@@ -204,3 +204,23 @@ All external dependencies are mocked with `vi.mock`:
 ### Why `server.deps.external`
 
 `vitest.config.ts` externalizes `/@libsql/` and `/^next/`. Without this, Vite's bundler tries to process these packages and breaks: `@libsql/client` ships native `.node` bindings that cannot be bundled, and `next/server` uses CJS/ESM interop that must be resolved by Node's module system directly.
+
+---
+
+## Live integration tests (`tests/integration/`)
+
+`search-live.test.ts` runs the real `/api/tables` handler, drivers and introspection against real databases (only auth and internal settings are mocked), covering free-text search on a `DeviceStatuses`-style schema: MAC addresses in any notation, case-insensitivity, FK display columns, numeric/date terms, wildcard escaping, pagination totals. Each database runs only when its env var is set, so `npm test` skips them.
+
+```bash
+docker run -d --rm --name sd-pg -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:16-alpine
+docker run -d --rm --name sd-my -e MYSQL_ROOT_PASSWORD=pw -e MYSQL_DATABASE=t -p 53306:3306 mysql:8
+docker run -d --rm --name sd-maria -e MARIADB_ROOT_PASSWORD=pw -e MARIADB_DATABASE=t -p 53307:3306 mariadb:11
+docker run -d --rm --name sd-ms -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='Str0ng!Passw0rd' -p 51433:1433 mcr.microsoft.com/mssql/server:2022-latest
+
+IT_POSTGRES=postgres://postgres:pw@localhost:55432/postgres \
+IT_MYSQL=mysql://root:pw@localhost:53306/t \
+IT_MARIADB=mariadb://root:pw@localhost:53307/t \
+IT_MSSQL='Server=localhost,51433;Database=master;User Id=sa;Password=Str0ng!Passw0rd;TrustServerCertificate=true' \
+IT_SQLITE=1 \
+npx vitest run tests/integration
+```

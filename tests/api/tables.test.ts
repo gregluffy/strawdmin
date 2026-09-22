@@ -105,10 +105,10 @@ describe("GET /api/tables/[table] — no search", () => {
 });
 
 describe("GET /api/tables/[table] — search on text columns", () => {
-  it("adds LIKE conditions for text columns", async () => {
+  it("adds case-insensitive ILIKE conditions for text columns (postgres)", async () => {
     await GET(makeRequest("orders", { search: "hello" }), routeParams("orders"));
     const rows = capturedSql().find((s) => !s.includes("COUNT(*)"))!;
-    expect(rows).toContain('"notes" LIKE');
+    expect(rows).toContain(`"notes" ILIKE $1 ESCAPE '!'`);
     expect(rows).toContain("WHERE");
   });
 
@@ -123,7 +123,7 @@ describe("GET /api/tables/[table] — search on text columns", () => {
     expect(allParams).toContain("%foo%");
   });
 
-  it("does not add WHERE when no text columns match and no FK conditions", async () => {
+  it("matches no rows when the term cannot match any column", async () => {
     const numericSchema = {
       name: "metrics",
       primaryKey: "id",
@@ -136,7 +136,7 @@ describe("GET /api/tables/[table] — search on text columns", () => {
 
     const res = await GET(makeRequest("metrics", { search: "foo" }), routeParams("metrics"));
     expect(res.status).toBe(200);
-    for (const sql of capturedSql()) expect(sql).not.toContain("WHERE");
+    for (const sql of capturedSql()) expect(sql).toContain("WHERE 1 = 0");
   });
 });
 
@@ -162,13 +162,13 @@ describe("GET /api/tables/[table] — search with FK display setting", () => {
   it("includes the display field condition in WHERE", async () => {
     await GET(makeRequest("orders", { search: "john" }), routeParams("orders"));
     const rows = capturedSql().find((s) => !s.includes("COUNT(*)"))!;
-    expect(rows).toContain('_fk0."name" LIKE');
+    expect(rows).toContain('_fk0."name" ILIKE');
   });
 
   it("still includes native text column conditions alongside FK conditions", async () => {
     await GET(makeRequest("orders", { search: "john" }), routeParams("orders"));
     const rows = capturedSql().find((s) => !s.includes("COUNT(*)"))!;
-    expect(rows).toContain('"orders"."notes" LIKE');
+    expect(rows).toContain('"orders"."notes" ILIKE');
   });
 
   it("applies the same JOIN to the COUNT query", async () => {
@@ -282,7 +282,125 @@ describe("GET /api/tables/[table] — multiple FK display settings", () => {
 
     expect(rows).toContain('LEFT JOIN "customers" _fk0');
     expect(rows).toContain('LEFT JOIN "products" _fk1');
-    expect(rows).toContain('_fk0."name" LIKE');
-    expect(rows).toContain('_fk1."title" LIKE');
+    expect(rows).toContain('_fk0."name" ILIKE');
+    expect(rows).toContain('_fk1."title" ILIKE');
+  });
+});
+
+describe("GET /api/tables/[table] — typed search", () => {
+  const DEVICE_SCHEMA = {
+    name: "DeviceStatuses",
+    primaryKey: "Id",
+    columns: [
+      { name: "Id", type: "integer", nullable: false, isPrimary: true, isAutoIncrement: true, isJson: false },
+      { name: "DeviceId", type: "integer", nullable: false, isPrimary: false, isAutoIncrement: false, isJson: false,
+        fk: { table: "Devices", column: "Id" } },
+      { name: "Mac", type: "macaddr", nullable: true, isPrimary: false, isAutoIncrement: false, isJson: false },
+      { name: "Online", type: "boolean", nullable: true, isPrimary: false, isAutoIncrement: false, isJson: false },
+      { name: "Payload", type: "jsonb", nullable: true, isPrimary: false, isAutoIncrement: false, isJson: true },
+      { name: "SeenAt", type: "timestamp with time zone", nullable: true, isPrimary: false, isAutoIncrement: false, isJson: false },
+    ],
+  };
+  const DEVICES_SCHEMA = {
+    name: "Devices",
+    primaryKey: "Id",
+    columns: [
+      { name: "Id", type: "integer", nullable: false, isPrimary: true, isAutoIncrement: true, isJson: false },
+      { name: "Serial", type: "integer", nullable: false, isPrimary: false, isAutoIncrement: false, isJson: false },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.mocked(getTable).mockImplementation(async (t) => {
+      if (t === "DeviceStatuses") return DEVICE_SCHEMA as any;
+      if (t === "Devices") return DEVICES_SCHEMA as any;
+      return null;
+    });
+    vi.mocked(getFkSettings).mockResolvedValue([{ column_name: "DeviceId", display_path: ["Serial"] }]);
+  });
+
+  function rowsQuery() {
+    const call = (mockQuery.mock.calls as [string, unknown[]][]).find(([s]) => !s.includes("COUNT(*)"))!;
+    return { sql: call[0], params: call[1] };
+  }
+
+  it("never LIKE-compares an integer column (no `integer ~~ unknown`)", async () => {
+    await GET(makeRequest("DeviceStatuses", { search: "80:f3:da:50:0e:3c" }), routeParams("DeviceStatuses"));
+    const { sql, params } = rowsQuery();
+    expect(sql).not.toMatch(/"Id" I?LIKE/);
+    expect(sql).not.toMatch(/"DeviceId" I?LIKE/);
+    expect(sql).not.toMatch(/_fk0\."Serial" I?LIKE/);
+    expect(sql).toContain(`CAST("DeviceStatuses"."Mac" AS TEXT) ILIKE`);
+    expect(params).toEqual(["%80:f3:da:50:0e:3c%", "%80-f3-da-50-0e-3c%", "%80f3da500e3c%", "%80f3.da50.0e3c%"]);
+  });
+
+  it("matches integer columns (including FK display) by equality for numeric terms", async () => {
+    await GET(makeRequest("DeviceStatuses", { search: "42" }), routeParams("DeviceStatuses"));
+    const { sql, params } = rowsQuery();
+    expect(sql).toContain(`"DeviceStatuses"."Id" = `);
+    expect(sql).toContain(`_fk0."Serial" = `);
+    expect(params.filter((p) => p === 42).length).toBe(3);
+  });
+
+  it("skips integer equality for values outside the column range", async () => {
+    await GET(makeRequest("DeviceStatuses", { search: "99999999999" }), routeParams("DeviceStatuses"));
+    const { sql } = rowsQuery();
+    expect(sql).not.toContain(`"Id" = `);
+  });
+
+  it("never searches json or boolean columns", async () => {
+    await GET(makeRequest("DeviceStatuses", { search: "true" }), routeParams("DeviceStatuses"));
+    const { sql } = rowsQuery();
+    expect(sql).not.toContain(`"Payload"`);
+    expect(sql).not.toContain(`"Online"`);
+  });
+
+  it("searches timestamps only for date-looking terms", async () => {
+    await GET(makeRequest("DeviceStatuses", { search: "2026-09" }), routeParams("DeviceStatuses"));
+    expect(rowsQuery().sql).toContain(`CAST("DeviceStatuses"."SeenAt" AS TEXT) ILIKE`);
+    mockQuery.mockClear();
+    await GET(makeRequest("DeviceStatuses", { search: "abc" }), routeParams("DeviceStatuses"));
+    expect(rowsQuery().sql).not.toContain(`"SeenAt"`);
+  });
+
+  it("requires every word to match (AND of per-term ORs)", async () => {
+    vi.mocked(getTable).mockResolvedValue(ORDERS_SCHEMA as any);
+    vi.mocked(getFkSettings).mockResolvedValue([]);
+    await GET(makeRequest("orders", { search: "foo bar" }), routeParams("orders"));
+    const { sql, params } = rowsQuery();
+    expect(sql).toContain(" AND ");
+    expect(params).toEqual(["%foo%", "%bar%"]);
+  });
+
+  it("escapes LIKE wildcards in the search term", async () => {
+    vi.mocked(getTable).mockResolvedValue(ORDERS_SCHEMA as any);
+    vi.mocked(getFkSettings).mockResolvedValue([]);
+    await GET(makeRequest("orders", { search: "50%_off!" }), routeParams("orders"));
+    expect(rowsQuery().params).toEqual(["%50!%!_off!!%"]);
+  });
+
+  it("does not search or filter columns hidden from the user", async () => {
+    vi.mocked(getRequestUser).mockResolvedValue({ sub: 2, username: "u", role: "user" as const });
+    vi.mocked(getUserColumnPolicies).mockResolvedValue({ Mac: { hidden: true, read_only: false } });
+    const filters = JSON.stringify([{ column: "Mac", operator: "contains", value: "80" }]);
+    await GET(makeRequest("DeviceStatuses", { search: "80:f3", filters }), routeParams("DeviceStatuses"));
+    expect(rowsQuery().sql).not.toContain(`"Mac"`);
+  });
+});
+
+describe("GET /api/tables/[table] — filters", () => {
+  it("casts non-text columns for substring filters", async () => {
+    const filters = JSON.stringify([{ column: "id", operator: "contains", value: "4" }]);
+    await GET(makeRequest("orders", { filters }), routeParams("orders"));
+    const sql = capturedSql().find((s) => !s.includes("COUNT(*)"))!;
+    expect(sql).toContain(`CAST("id" AS TEXT) ILIKE $1 ESCAPE '!'`);
+  });
+
+  it("returns 400 for a non-numeric comparison value on a numeric column", async () => {
+    const filters = JSON.stringify([{ column: "id", operator: "gt", value: "abc" }]);
+    const res = await GET(makeRequest("orders", { filters }), routeParams("orders"));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/not a valid integer/);
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 });

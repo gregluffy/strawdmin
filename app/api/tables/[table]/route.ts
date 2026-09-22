@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDriver } from "@/lib/drivers";
 import { getTable } from "@/lib/introspect";
-import { serializeRow, deserializeBinary } from "@/lib/sql";
+import { serializeRow, deserializeBinary, FilterValidationError } from "@/lib/sql";
 import { getRequestUser } from "@/lib/request-auth";
 import { getUserTablePolicy, getUserColumnPolicies, logAudit } from "@/lib/internal-db";
 import { getActiveConnection } from "@/lib/active-connection";
@@ -32,19 +32,25 @@ export async function GET(
     const search = searchParams.get("search") ?? "";
     const sort = searchParams.get("sort") ?? schema.primaryKey;
     const dir = searchParams.get("dir") === "asc" ? "ASC" : "DESC";
-    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
-    const pageSize = Math.min(200, Math.max(1, parseInt(searchParams.get("pageSize") ?? "50")));
+    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1") || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(searchParams.get("pageSize") ?? "50") || 50));
     const offset = (page - 1) * pageSize;
     const filterLogic: FilterLogic = searchParams.get("filterLogic") === "OR" ? "OR" : "AND";
 
-    const validColumns = new Set(schema.columns.map((c) => c.name));
+    let hiddenCols = new Set<string>();
+    if (user.role !== "admin") {
+      const colPolicies = await getUserColumnPolicies(user.sub, table, conn.id);
+      hiddenCols = new Set(Object.entries(colPolicies).filter(([, p]) => p.hidden).map(([col]) => col));
+    }
+
+    const validColumns = new Set(schema.columns.map((c) => c.name).filter((c) => !hiddenCols.has(c)));
     const sortCol = validColumns.has(sort) ? sort : schema.primaryKey;
     const filters = parseFilters(searchParams.get("filters"), validColumns);
 
     const driver = getDriver(conn);
 
     const { joinClause, tableRef, whereSql, queryParams } = await buildSearchAndFilterClause({
-      driver, table, schema, conn, search, filters, filterLogic,
+      driver, table, schema, conn, search, filters, filterLogic, hiddenColumns: hiddenCols,
     });
 
     const countSql = `SELECT COUNT(*) as total FROM ${driver.quote(table)}${joinClause}${whereSql}`;
@@ -62,12 +68,6 @@ export async function GET(
       driver.query(rowsSql, queryParams),
     ]);
 
-    let hiddenCols = new Set<string>();
-    if (user.role !== "admin") {
-      const colPolicies = await getUserColumnPolicies(user.sub, table, conn.id);
-      hiddenCols = new Set(Object.entries(colPolicies).filter(([, p]) => p.hidden).map(([col]) => col));
-    }
-
     const serialized = rows.map((r) => {
       const row = serializeRow(r as Record<string, unknown>);
       for (const col of hiddenCols) delete row[col];
@@ -77,6 +77,9 @@ export async function GET(
     const total = Number(countResult[0]?.total ?? 0);
     return NextResponse.json({ rows: serialized, total, page, pageSize });
   } catch (err) {
+    if (err instanceof FilterValidationError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     console.error(err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
