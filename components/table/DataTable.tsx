@@ -3,7 +3,8 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import type { PaginatedResult, SchemaTable, Column, TablePolicy, FilterCondition, FilterLogic, FilterOperator } from "@/lib/types";
-import { TEXTISH_TYPES } from "@/lib/types";
+import { supportsSubstringMatch } from "@/lib/search";
+import { paginationWindow } from "@/lib/pagination";
 import { basePath } from "@/lib/api-url";
 import { getAlgorithmLabel } from "@/lib/crypto";
 import { UsersIcon, LockIcon, FilterIcon, DownloadIcon, RefreshIcon } from "@/components/ui/icons";
@@ -26,9 +27,18 @@ const TEXT_OPERATORS: FilterOperator[] = ["eq", "neq", "contains", "not_contains
 const NUMERIC_OPERATORS: FilterOperator[] = ["eq", "neq", "gt", "gte", "lt", "lte", "is_null", "is_not_null"];
 const NO_VALUE_OPERATORS = new Set<FilterOperator>(["is_null", "is_not_null"]);
 
-function isTextishType(colType: string): boolean {
-  const t = colType.toLowerCase();
-  return TEXTISH_TYPES.some((needle) => t.includes(needle));
+const PAGE_SIZES = [25, 50, 100, 200];
+
+/** Turns a failed API response into a readable message (routes reply `{ error }`). */
+async function responseError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const body = JSON.parse(text) as { error?: unknown };
+    if (typeof body.error === "string") return body.error;
+  } catch {
+    // not JSON
+  }
+  return text || `Request failed (${res.status})`;
 }
 
 interface FilterConditionDraft extends FilterCondition {
@@ -149,7 +159,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
   const canUpdate = isAdmin || (tablePolicy?.can_update ?? true);
   const canDelete = isAdmin || (tablePolicy?.can_delete ?? true);
 
-  const pageSize = 50;
+  const [pageSize, setPageSize] = useState(50);
 
   // Load column visibility + sort prefs from the internal DB
   useEffect(() => {
@@ -252,16 +262,16 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
         params.set("filterLogic", filterLogic);
       }
       const res = await fetch(`${basePath}/api/tables/${tableName}?${params}`);
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await responseError(res));
       setResult(await res.json());
       setLastRefreshed(new Date());
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [tableName, search, sort, dir, page, filters, filterLogic]);
+  }, [tableName, search, sort, dir, page, pageSize, filters, filterLogic]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -307,7 +317,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    setSearch(searchInput);
+    setSearch(searchInput.trim());
     setPage(1);
   }
 
@@ -434,7 +444,7 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
 
   function operatorsForColumn(colName: string): FilterOperator[] {
     const col = schema.columns.find((c) => c.name === colName);
-    return col && isTextishType(col.type) ? TEXT_OPERATORS : NUMERIC_OPERATORS;
+    return col && supportsSubstringMatch(col) ? TEXT_OPERATORS : NUMERIC_OPERATORS;
   }
 
   function openFilterModal() {
@@ -614,6 +624,11 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
   }
 
   const totalPages = result ? Math.ceil(result.total / pageSize) : 0;
+
+  // After deletes or a narrower search the current page can fall past the end.
+  useEffect(() => {
+    if (totalPages > 0 && page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   const visibleColsList = schema.columns.filter((c) => visibleCols.has(c.name));
   const hiddenCount = schema.columns.length - visibleColsList.length;
 
@@ -1483,7 +1498,8 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search..."
+            placeholder="Search…"
+            title='Every word must match some column. Use "quotes" for an exact phrase.'
             className="flex-1 min-w-0 px-3 py-2 bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
           />
           <button
@@ -1796,30 +1812,69 @@ export function DataTable({ tableName, schema, isAdmin, tablePolicy, columnPolic
 
       {/* Pagination */}
       {result && (
-        <div className="flex items-center justify-between text-sm text-[var(--muted-foreground)]">
-          <span>
-            {result.total} records &middot; Page {page} of {Math.max(1, totalPages)}
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-[var(--muted-foreground)]">
+          <div className="flex items-center gap-3">
+            <span>
+              {result.total === 0
+                ? "No results"
+                : <>Showing <span className="text-[var(--foreground)] font-medium">{(page - 1) * pageSize + 1}</span> to <span className="text-[var(--foreground)] font-medium">{Math.min(page * pageSize, result.total)}</span> of <span className="text-[var(--foreground)] font-medium">{result.total}</span> results</>}
+            </span>
+            <label className="flex items-center gap-1.5">
+              <select
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                aria-label="Rows per page"
+                className="px-2 py-1 bg-[var(--input)] border border-[var(--border)] rounded text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+              >
+                {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              per page
+            </label>
+          </div>
           {totalPages > 1 && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage(Math.max(1, page - 1))}
-                disabled={page === 1}
-                className="px-3 py-1.5 rounded bg-[var(--secondary)] hover:bg-[var(--accent)] border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[var(--foreground)]"
-              >
-                ← Prev
-              </button>
-              <button
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1.5 rounded bg-[var(--secondary)] hover:bg-[var(--accent)] border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[var(--foreground)]"
-              >
-                Next →
-              </button>
-            </div>
+            <nav aria-label="Pagination" className="flex flex-wrap items-center gap-1">
+              <PageButton onClick={() => setPage(1)} disabled={page === 1} label="First page">«</PageButton>
+              <PageButton onClick={() => setPage(page - 1)} disabled={page === 1} label="Previous page">‹</PageButton>
+              {paginationWindow(page, totalPages).map((slot, i) =>
+                slot === "gap" ? (
+                  <span key={`gap${i}`} className="px-2 py-1.5 select-none" aria-hidden>…</span>
+                ) : (
+                  <PageButton key={slot} onClick={() => setPage(slot)} active={slot === page} label={`Page ${slot}`}>
+                    {slot}
+                  </PageButton>
+                )
+              )}
+              <PageButton onClick={() => setPage(page + 1)} disabled={page === totalPages} label="Next page">›</PageButton>
+              <PageButton onClick={() => setPage(totalPages)} disabled={page === totalPages} label="Last page">»</PageButton>
+            </nav>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function PageButton({ onClick, disabled, active, label, children }: {
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || active}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      className={`min-w-9 px-2.5 py-1.5 rounded border tabular-nums transition-colors disabled:cursor-not-allowed ${
+        active
+          ? "bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-foreground)] font-medium"
+          : "bg-[var(--secondary)] hover:bg-[var(--accent)] border-[var(--border)] text-[var(--foreground)] disabled:opacity-40"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

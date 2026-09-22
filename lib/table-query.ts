@@ -1,7 +1,8 @@
 import type { DbDriver } from "./drivers";
 import { getTable } from "./introspect";
 import { getFkSettings } from "./internal-db";
-import { buildFilterClause, isTextishType } from "./sql";
+import { buildFilterClause } from "./sql";
+import { buildSearchClause, columnSearchKind, type SearchTarget } from "./search";
 import type { DbConnection, FilterCondition, FilterLogic, FilterOperator, SchemaTable } from "./types";
 
 const VALID_OPERATORS = new Set<FilterOperator>([
@@ -42,9 +43,11 @@ export interface SearchAndFilterResult {
 
 /**
  * Builds the JOIN + WHERE fragments shared by the paginated table view and
- * the CSV export, so both stay in sync: free-text `search` OR-matches across
- * textish columns (and FK-joined display columns), ANDed with the
- * column-scoped `filters` (which are combined with each other via `filterLogic`).
+ * the CSV export, so both stay in sync: free-text `search` is split into
+ * terms, each of which must match at least one searchable column (native or
+ * FK-joined display column), ANDed with the column-scoped `filters` (which
+ * are combined with each other via `filterLogic`). `hiddenColumns` are
+ * excluded from both, so column policies can't be probed through search.
  */
 export async function buildSearchAndFilterClause(opts: {
   driver: DbDriver;
@@ -54,35 +57,42 @@ export async function buildSearchAndFilterClause(opts: {
   search: string;
   filters: FilterCondition[];
   filterLogic: FilterLogic;
+  hiddenColumns?: Set<string>;
 }): Promise<SearchAndFilterResult> {
-  const { driver, table, schema, conn, search, filters, filterLogic } = opts;
+  const { driver, table, schema, conn, filters, filterLogic } = opts;
+  const hidden = opts.hiddenColumns ?? new Set<string>();
+  const search = opts.search.trim();
+  const dbType = driver.dbType;
   const queryParams: unknown[] = [];
   const fkJoins: string[] = [];
-  const fkConditions: Array<{ alias: string; field: string }> = [];
+  const fkTargets: SearchTarget[] = [];
+  const visibleColumns = schema.columns.filter((c) => !hidden.has(c.name));
 
   if (search) {
     const fkSettings = await getFkSettings(table, conn.id);
     let joinIdx = 0;
     for (const setting of fkSettings) {
-      const col = schema.columns.find((c) => c.name === setting.column_name);
+      const col = visibleColumns.find((c) => c.name === setting.column_name);
       if (!col?.fk) continue;
       const refSchema = await getTable(col.fk.table, conn);
       if (!refSchema) continue;
 
       if (setting.display_path.length === 1) {
         const [displayField] = setting.display_path;
-        if (!refSchema.columns.some((c) => c.name === displayField)) continue;
+        const displayCol = refSchema.columns.find((c) => c.name === displayField);
+        if (!displayCol || columnSearchKind(displayCol, dbType) === "none") continue;
         const alias = `_fk${joinIdx++}`;
         fkJoins.push(
           `LEFT JOIN ${driver.quote(col.fk.table)} ${alias} ON ${driver.quote(table)}.${driver.quote(col.name)} = ${alias}.${driver.quote(col.fk.column)}`
         );
-        fkConditions.push({ alias, field: displayField });
+        fkTargets.push({ sql: `${alias}.${driver.quote(displayField)}`, type: displayCol.type, isJson: displayCol.isJson });
       } else if (setting.display_path.length === 2) {
         const [hopCol, displayField] = setting.display_path;
         const hopColDef = refSchema.columns.find((c) => c.name === hopCol);
         if (!hopColDef?.fk) continue;
         const hop2Schema = await getTable(hopColDef.fk.table, conn);
-        if (!hop2Schema?.columns.some((c) => c.name === displayField)) continue;
+        const displayCol = hop2Schema?.columns.find((c) => c.name === displayField);
+        if (!displayCol || columnSearchKind(displayCol, dbType) === "none") continue;
         const alias1 = `_fk${joinIdx++}`;
         fkJoins.push(
           `LEFT JOIN ${driver.quote(col.fk.table)} ${alias1} ON ${driver.quote(table)}.${driver.quote(col.name)} = ${alias1}.${driver.quote(col.fk.column)}`
@@ -91,7 +101,7 @@ export async function buildSearchAndFilterClause(opts: {
         fkJoins.push(
           `LEFT JOIN ${driver.quote(hopColDef.fk.table)} ${alias2} ON ${alias1}.${driver.quote(hopCol)} = ${alias2}.${driver.quote(hopColDef.fk.column)}`
         );
-        fkConditions.push({ alias: alias2, field: displayField });
+        fkTargets.push({ sql: `${alias2}.${driver.quote(displayField)}`, type: displayCol.type, isJson: displayCol.isJson });
       }
     }
   }
@@ -102,23 +112,24 @@ export async function buildSearchAndFilterClause(opts: {
   const whereClauses: string[] = [];
 
   if (search) {
-    const textCols = schema.columns.filter((c) => !c.isJson && isTextishType(c.type));
-    const searchConditions: string[] = [];
-    for (const c of textCols) {
-      const idx = queryParams.length;
-      queryParams.push(`%${search}%`);
-      searchConditions.push(`${tableRef}${driver.quote(c.name)} LIKE ${driver.placeholder(idx)}`);
-    }
-    for (const { alias, field } of fkConditions) {
-      const idx = queryParams.length;
-      queryParams.push(`%${search}%`);
-      searchConditions.push(`${alias}.${driver.quote(field)} LIKE ${driver.placeholder(idx)}`);
-    }
-    if (searchConditions.length > 0) whereClauses.push(`(${searchConditions.join(" OR ")})`);
+    const targets: SearchTarget[] = [
+      ...visibleColumns.map((c) => ({ sql: `${tableRef}${driver.quote(c.name)}`, type: c.type, isJson: c.isJson })),
+      ...fkTargets,
+    ];
+    const searchClause = buildSearchClause({ dbType, placeholder: driver.placeholder, targets, search, queryParams });
+    if (searchClause) whereClauses.push(searchClause);
   }
 
-  const validColumns = new Set(schema.columns.map((c) => c.name));
-  const filterClause = buildFilterClause(driver.quote, driver.placeholder, filters, filterLogic, validColumns, queryParams, tableRef);
+  const filterClause = buildFilterClause({
+    dbType,
+    quote: driver.quote,
+    placeholder: driver.placeholder,
+    conditions: filters,
+    logic: filterLogic,
+    columns: new Map(visibleColumns.map((c) => [c.name, c])),
+    queryParams,
+    tableRef,
+  });
   if (filterClause) whereClauses.push(filterClause);
 
   const whereSql = whereClauses.length > 0 ? ` WHERE ${whereClauses.join(" AND ")}` : "";
