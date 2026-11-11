@@ -83,10 +83,20 @@ export function buildFilterClause(opts: {
   return parts.length === 1 ? parts[0] : `(${parts.join(` ${logic} `)})`;
 }
 
+/**
+ * Postgres tables outside the `public` schema are named `schema.table` (see introspectPostgres), so a
+ * dotted name is quoted part by part: `catalog.products` → `"catalog"."products"`. The cost: a Postgres
+ * identifier with a dot in its own name can't be addressed.
+ */
+export function quotePostgres(s: string): string {
+  return s.split(".").map((part) => `"${part.replace(/"/g, '""')}"`).join(".");
+}
+
 export function quoteIdentifier(dbType: string): (s: string) => string {
   const t = dbType.trim().toLowerCase();
   if (t === "mssql") return (s) => `[${s.replace(/]/g, "]]")}]`;
   if (t === "mysql" || t === "mariadb") return (s) => `\`${s.replace(/`/g, "``")}\``;
+  if (t === "postgres") return quotePostgres;
   return (s) => `"${s.replace(/"/g, '""')}"`;
 }
 

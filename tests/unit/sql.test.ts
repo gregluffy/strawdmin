@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   quoteIdentifier,
+  quotePostgres,
   placeholder,
   serializeRow,
   isBinaryType,
@@ -46,6 +47,15 @@ describe("quoteIdentifier", () => {
   it("handles identifier with spaces", () => {
     const q = quoteIdentifier("postgres");
     expect(q("my table")).toBe('"my table"');
+  });
+
+  it("quotes a postgres table outside public part by part", () => {
+    const q = quoteIdentifier("postgres");
+    expect(q("catalog.products")).toBe('"catalog"."products"');
+  });
+
+  it("escapes double quotes in postgres identifiers", () => {
+    expect(quotePostgres('a"b')).toBe('"a""b"');
   });
 });
 

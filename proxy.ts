@@ -22,7 +22,8 @@ export async function proxy(req: NextRequest) {
   if (
     pathname === "/" ||
     PUBLIC_PREFIXES.some((p) => pathname.startsWith(p)) ||
-    STATIC_EXT.test(pathname)
+    // A table outside Postgres' public schema is named `schema.table`: its pages look like files but aren't.
+    (STATIC_EXT.test(pathname) && !pathname.startsWith("/dashboard/") && !pathname.startsWith("/api/"))
   ) {
     return NextResponse.next();
   }

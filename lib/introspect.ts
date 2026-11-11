@@ -52,46 +52,56 @@ async function introspectPostgres(driver: any): Promise<SchemaTable[]> {
     table_name: string; column_name: string; data_type: string;
     is_nullable: string; column_default: string | null; is_identity: string;
   };
+  // Every schema but Postgres' own. A table outside `public` is named `schema.table`; one in `public` keeps
+  // its plain name, so settings saved under it before schemas were read still apply.
+  const named = (schema: string, table: string) => (schema === "public" ? table : `${schema}.${table}`);
+  const inUserSchema = (col: string) => `${col} NOT IN ('pg_catalog', 'information_schema') AND ${col} NOT LIKE 'pg\\_%'`;
   type PkRow = { table_name: string; column_name: string };
   type FkRow = { table_name: string; column_name: string; foreign_table_name: string; foreign_column_name: string };
   type SizeRow = { table_name: string; size_bytes: string | number };
 
   const colRows = (await driver.query(
-    `SELECT c.table_name, c.column_name, c.data_type, c.is_nullable, c.column_default, c.is_identity
+    `SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.is_nullable, c.column_default, c.is_identity
      FROM information_schema.columns c
      JOIN information_schema.tables t
        ON c.table_name = t.table_name AND c.table_schema = t.table_schema
-     WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
-     ORDER BY c.table_name, c.ordinal_position`
-  )) as PgCol[];
+     WHERE ${inUserSchema("c.table_schema")} AND t.table_type = 'BASE TABLE'
+     ORDER BY c.table_schema, c.table_name, c.ordinal_position`
+  )) as (PgCol & { table_schema: string })[];
+  for (const r of colRows) r.table_name = named(r.table_schema, r.table_name);
 
   const pkRows = (await driver.query(
-    `SELECT kcu.table_name, kcu.column_name
+    `SELECT kcu.table_schema, kcu.table_name, kcu.column_name
      FROM information_schema.table_constraints tc
      JOIN information_schema.key_column_usage kcu
        ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-     WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public'`
-  )) as PkRow[];
+     WHERE tc.constraint_type = 'PRIMARY KEY' AND ${inUserSchema("tc.table_schema")}`
+  )) as (PkRow & { table_schema: string })[];
+  for (const r of pkRows) r.table_name = named(r.table_schema, r.table_name);
 
   const fkRows = (await driver.query(
     `SELECT
-       kcu.table_name, kcu.column_name,
-       ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name
+       kcu.table_schema, kcu.table_name, kcu.column_name,
+       ccu.table_schema AS foreign_table_schema, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name
      FROM information_schema.table_constraints tc
      JOIN information_schema.key_column_usage kcu
        ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
      JOIN information_schema.constraint_column_usage ccu
-       ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
-     WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'`
-  )) as FkRow[];
+       ON tc.constraint_name = ccu.constraint_name AND tc.constraint_schema = ccu.constraint_schema
+     WHERE tc.constraint_type = 'FOREIGN KEY' AND ${inUserSchema("tc.table_schema")}`
+  )) as (FkRow & { table_schema: string; foreign_table_schema: string })[];
+  for (const r of fkRows) {
+    r.table_name = named(r.table_schema, r.table_name);
+    r.foreign_table_name = named(r.foreign_table_schema, r.foreign_table_name);
+  }
 
   const sizeMap = new Map<string, number>();
   try {
     const sizeRows = (await driver.query(
-      `SELECT relname AS table_name, pg_total_relation_size(relid) AS size_bytes
+      `SELECT schemaname, relname AS table_name, pg_total_relation_size(relid) AS size_bytes
        FROM pg_catalog.pg_statio_user_tables`
-    )) as SizeRow[];
-    for (const r of sizeRows) sizeMap.set(r.table_name, Number(r.size_bytes));
+    )) as (SizeRow & { schemaname: string })[];
+    for (const r of sizeRows) sizeMap.set(named(r.schemaname, r.table_name), Number(r.size_bytes));
   } catch {
     // size info unavailable
   }
