@@ -1,6 +1,7 @@
 import type { DbType, DbConnection } from "../types";
 import { ensureTunnel, closeTunnel, rewriteForTunnel, openTunnel, parseDbTarget } from "../ssh-tunnel";
 import type { SshConfig } from "../ssh-tunnel";
+import { quotePostgres } from "../sql";
 
 export interface DbDriver {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -139,7 +140,7 @@ function createPostgresDriver(connStr: string, tunnelPromise: Promise<string> | 
 
   return {
     dbType: "postgres",
-    quote: (s) => `"${s}"`,
+    quote: quotePostgres,
     placeholder: (i) => `$${i + 1}`,
     async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
       const pool = await getPool();

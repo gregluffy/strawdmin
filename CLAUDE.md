@@ -42,7 +42,7 @@ Strawdmin manages **two completely separate databases**:
 ### 1. Target database (the one being administered)
 Configured via `DB_TYPE` + `DB_CONNECTION_STRING`. Accessed through the driver abstraction in [lib/drivers/index.ts](lib/drivers/index.ts), which provides a uniform `DbDriver` interface (`query`, `quote`, `placeholder`) over pg, mysql2, mssql, and @libsql/client. The driver is a singleton — one connection pool for the process lifetime.
 
-Schema is introspected once per process and cached in memory in [lib/introspect.ts](lib/introspect.ts). Call `clearSchemaCache()` or hit `DELETE /api/schema` to force re-introspection after DDL changes.
+Schema is introspected once per process and cached in memory in [lib/introspect.ts](lib/introspect.ts). Postgres tables outside `public` are named `schema.table`, and the Postgres `quote()` (`quotePostgres` in `lib/sql.ts`) quotes a dotted name part by part. Call `clearSchemaCache()` or hit `DELETE /api/schema` to force re-introspection after DDL changes.
 
 SQL generation helpers (identifier quoting, parameter placeholders, binary serialization) live in [lib/sql.ts](lib/sql.ts).
 
